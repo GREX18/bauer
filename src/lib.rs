@@ -405,14 +405,14 @@ pub fn builder(input: TokenStream) -> TokenStream {
             if f.attr.repeat.is_some() {
                 let vec = &f.ident;
                 quote! {
-                    fn #fn_ident(#prefix self, #field_name: #source) -> #ret {
+                    #builder_vis fn #fn_ident(#prefix self, #field_name: #source) -> #ret {
                         self.#vec.push(#value);
                         self
                     }
                 }
             } else {
                 quote! {
-                    fn #fn_ident(#prefix self, #field_name: #source) -> #ret {
+                    #builder_vis fn #fn_ident(#prefix self, #field_name: #source) -> #ret {
                         self.#ident = Some(#value);
                         self
                     }
