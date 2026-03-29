@@ -25,12 +25,13 @@ use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{DeriveInput, parse::ParseStream, parse_macro_input, spanned::Spanned};
 
 use crate::{
-    builder::BuilderAttr,
+    builder::{BuilderAttr, Kind},
     field::{BuilderField, Repeat},
 };
 
 mod builder;
 mod field;
+mod type_state;
 
 /// The main macro.
 ///
@@ -55,14 +56,57 @@ mod field;
 /// }
 /// ```
 ///
+/// ## Errors
+///
+/// When a builder can fail, the `.build` function will return an `Result` that contains the built
+/// value or a descriptive error.
+///
+/// If any of these cases are true, the `.build` function will return a `Result`:
+///
+/// **A field is required**  
+/// By default all fields are required, barring some exceptions (field is `Option`, field has a
+/// default value, field is `repeat`, etc)
+///
+/// **`repeat_n` is set**
+/// If `repeat_n` is set for any field, then `.build` will return an error if the range is not
+/// satisfied.
+///
+/// **Other Cases**
+/// There are other cases where `.build` can fail, this list is non-exhaustive.
+///
+/// ### Type-State Builder
+///
+/// If `kind` is set to `"type-state"`, then the builder will _not_ return a Result, as all build
+/// conditions are validated at compile-time.
+///
 /// ## Builder Attributes
 ///
 /// ### **`kind`**
 ///
-/// Possible values: `"owned"`, `"borrowed"`  
-/// Default: `"owned"`
+/// #### Possible Values
 ///
-/// Whether the builder should be passed around as an owned value or a mutable reference.
+/// **`"owned"`**  
+/// The builder functions consume and generate owned values
+///
+/// ```
+/// # use bauer::Builder;
+/// #[derive(Builder)]
+/// #[builder(kind = "owned")]
+/// pub struct Foo {
+///     a: u32,
+/// }
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let foo: Foo = Foo::builder()
+///     .a(42)
+///     .build()?;
+/// # Ok(()) }
+/// ```
+///
+/// **`"borrowed"`**  
+/// The builder functions operate on mutable references to the builder
+///
+/// _Note: After calling `.build()`, the builder is reset_
 ///
 /// ```
 /// # use bauer::Builder;
@@ -71,7 +115,36 @@ mod field;
 /// pub struct Foo {
 ///     a: u32,
 /// }
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut builder = Foo::builder();
+/// builder.a(42);
+/// let foo: Foo = builder.build()?;
+/// assert_eq!(foo.a, 42);
+/// # Ok(()) }
 /// ```
+///
+/// **`"type-state"`**  
+/// The builder and its functions are generated in a way that uses the type-state pattern.  This
+/// means that things like required fields can be enforced at compile-time.  Due to the constraints
+/// with type-state builders, some attributes may be limited.  All limitations are documented with
+/// the attributes.
+///
+/// The `.build` function will never return an error, as it is only possible to call when building
+/// the final structure is infallible.
+///
+/// ```compile_fail
+/// # use bauer::Builder;
+/// #[derive(Builder)]
+/// #[builder(kind = "type-state")]
+/// pub struct Foo {
+///     a: u32,
+/// }
+///
+/// let foo: Foo = Foo::builder().build(); // fails to compile
+/// ```
+///
+/// Default: `"owned"`
 ///
 /// ### **`prefix`**/**`suffix`**
 ///
@@ -183,8 +256,22 @@ mod field;
 ///
 /// Attribute `repeat` must also be specified.
 ///
-/// Ensure that the length of items supplied via repeat is within a certain range.  If this range
-/// is not met, an error will be returned.
+/// Ensure that the length of items supplied via repeat is within a certain range.  The range can
+/// be any pattern that may be used in a `match` statement.  If this range is not met, an error
+/// will be returned.
+///
+/// #### Type-state Builder
+///
+/// When using the type-state kind, the value used is limited to the following (where `N` and `M`
+/// are integer literals)
+///
+/// - Integer Literals (`N`)
+/// - Closed Ranges (`N..M` or `N..=M`)
+/// - Minimum Ranges (`N..`)
+///
+/// Note: The length of the range is limited to 64, because big ranges slow compile-time.  If you
+/// require a larger range and the compile-time sacrifice is worth it, you can enable the
+/// `unlimited_range` feature.
 ///
 /// ```
 /// # use bauer::Builder;
@@ -378,7 +465,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
         syn::Fields::Named(ref fields_named) => match fields_named
             .named
             .iter()
-            .map(BuilderField::try_from)
+            .map(BuilderField::parse)
             .collect::<Result<_, _>>()
         {
             Ok(v) => v,
@@ -412,6 +499,10 @@ pub fn builder(input: TokenStream) -> TokenStream {
             }
         })
         .collect();
+
+    if attr.kind == Kind::TypeState {
+        return type_state::type_state_builder(&attr, &input, &fields_named).into();
+    }
 
     let functions: TokenStream2 = fields_named.iter().map(|f| f.function(&attr)).collect();
 
@@ -449,7 +540,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
     let build_fields = fields_named.iter().map(|field| {
         let name = &field.ident;
 
-        if let Some(Repeat { inner_ty, len }) = &field.attr.repeat {
+        if let Some(Repeat { inner_ty, len, .. }) = &field.attr.repeat {
             if let Some((range, err)) = len {
                 quote_spanned! {
                     range.span() =>

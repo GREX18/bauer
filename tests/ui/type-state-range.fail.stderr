@@ -1,0 +1,119 @@
+error[E0599]: the method `build` exists for struct `RangeInclusiveBuilder<RangeInclusiveFieldACount<((), ())>>`, but its trait bounds were not satisfied
+  --> tests/ui/type-state-range.fail.rs:32:66
+   |
+ 3 | #[derive(Builder)]
+   |          ------- method `build` not found for this struct
+...
+32 |     let _: RangeInclusive = RangeInclusive::builder().field_a(1).build(); // fail b/c <2
+   |                                                                  ^^^^^ method cannot be called due to unsatisfied trait bounds
+   |
+note: trait bound `((), ()): Range_2_3_Inclusive` was not satisfied
+  --> tests/ui/type-state-range.fail.rs:3:10
+   |
+ 3 | #[derive(Builder)]
+   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+
+error[E0599]: the method `build` exists for struct `RangeInclusiveBuilder<RangeInclusiveFieldACount<(((((), ()), ()), ()), ())>>`, but its trait bounds were not satisfied
+  --> tests/ui/type-state-range.fail.rs:38:10
+   |
+ 3 |   #[derive(Builder)]
+   |            ------- method `build` not found for this struct
+...
+33 |       let _: RangeInclusive = RangeInclusive::builder()
+   |  _____________________________-
+34 | |         .field_a(1)
+35 | |         .field_a(2)
+36 | |         .field_a(3)
+37 | |         .field_a(4)
+38 | |         .build(); // fail b/c >3
+   | |         -^^^^^ method cannot be called due to unsatisfied trait bounds
+   | |_________|
+   |
+   |
+note: trait bound `(((((), ()), ()), ()), ()): Range_2_3_Inclusive` was not satisfied
+  --> tests/ui/type-state-range.fail.rs:3:10
+   |
+ 3 | #[derive(Builder)]
+   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+
+error[E0599]: the method `build` exists for struct `RangeExclusiveBuilder<RangeExclusiveFieldACount<((), ())>>`, but its trait bounds were not satisfied
+  --> tests/ui/type-state-range.fail.rs:40:66
+   |
+10 | #[derive(Builder)]
+   |          ------- method `build` not found for this struct
+...
+40 |     let _: RangeExclusive = RangeExclusive::builder().field_a(1).build(); // fail b/c <2
+   |                                                                  ^^^^^ method cannot be called due to unsatisfied trait bounds
+   |
+note: trait bound `((), ()): Range_2_3` was not satisfied
+  --> tests/ui/type-state-range.fail.rs:10:10
+   |
+10 | #[derive(Builder)]
+   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+
+error[E0599]: the method `build` exists for struct `RangeExclusiveBuilder<RangeExclusiveFieldACount<((((), ()), ()), ())>>`, but its trait bounds were not satisfied
+  --> tests/ui/type-state-range.fail.rs:45:10
+   |
+10 |   #[derive(Builder)]
+   |            ------- method `build` not found for this struct
+...
+41 |       let _: RangeExclusive = RangeExclusive::builder()
+   |  _____________________________-
+42 | |         .field_a(1)
+43 | |         .field_a(2)
+44 | |         .field_a(3)
+45 | |         .build(); // fail b/c >=3
+   | |         -^^^^^ method cannot be called due to unsatisfied trait bounds
+   | |_________|
+   |
+   |
+note: trait bound `((((), ()), ()), ()): Range_2_3` was not satisfied
+  --> tests/ui/type-state-range.fail.rs:10:10
+   |
+10 | #[derive(Builder)]
+   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+
+error[E0599]: the method `build` exists for struct `RangeOpenBuilder<RangeOpenFieldACount<((), ())>>`, but its trait bounds were not satisfied
+  --> tests/ui/type-state-range.fail.rs:47:56
+   |
+17 | #[derive(Builder)]
+   |          ------- method `build` not found for this struct
+...
+47 |     let _: RangeOpen = RangeOpen::builder().field_a(1).build(); // fail b/c <2
+   |                                                        ^^^^^ method cannot be called on `RangeOpenBuilder<RangeOpenFieldACount<((), ())>>` due to unsatisfied trait bounds
+   |
+note: trait bound `((), ()): Gte_2` was not satisfied
+  --> tests/ui/type-state-range.fail.rs:17:10
+   |
+17 | #[derive(Builder)]
+   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+
+error[E0599]: the method `build` exists for struct `ExactBuilder<ExactFieldACount<((), ())>>`, but its trait bounds were not satisfied
+  --> tests/ui/type-state-range.fail.rs:49:48
+   |
+24 | #[derive(Builder)]
+   |          ------- method `build` not found for this struct
+...
+49 |     let _: Exact = Exact::builder().field_a(1).build(); // fail b/c <2
+   |                                                ^^^^^ method cannot be called on `ExactBuilder<ExactFieldACount<((), ())>>` due to unsatisfied trait bounds
+   |
+note: trait bound `((), ()): Eq_2` was not satisfied
+  --> tests/ui/type-state-range.fail.rs:24:10
+   |
+24 | #[derive(Builder)]
+   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+
+error[E0599]: the method `build` exists for struct `ExactBuilder<ExactFieldACount<((((), ()), ()), ())>>`, but its trait bounds were not satisfied
+  --> tests/ui/type-state-range.fail.rs:50:70
+   |
+24 | #[derive(Builder)]
+   |          ------- method `build` not found for this struct
+...
+50 |     let _: Exact = Exact::builder().field_a(1).field_a(2).field_a(2).build(); // fail b/c >2
+   |                                                                      ^^^^^ method cannot be called due to unsatisfied trait bounds
+   |
+note: trait bound `((((), ()), ()), ()): Eq_2` was not satisfied
+  --> tests/ui/type-state-range.fail.rs:24:10
+   |
+24 | #[derive(Builder)]
+   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro

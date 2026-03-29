@@ -1,7 +1,7 @@
 use bauer::Builder;
 
 #[derive(Debug, Builder)]
-#[builder(kind = "borrowed", prefix = "set_")]
+#[builder(kind = "type-state", prefix = "set_")]
 pub struct Foo {
     /// Hello
     #[builder(default = "42")]
@@ -14,15 +14,17 @@ pub struct Foo {
 }
 
 fn main() {
-    let x: Foo = Foo::builder()
+    let builder = Foo::builder()
         .set_field_a(69)
         .set_field_b(true)
         .set_field_c("hello world")
         .add_d(std::f64::consts::PI)
         .add_d(std::f64::consts::TAU)
-        .add_d(2.72)
-        .build()
-        .unwrap();
+        .add_d(2.72);
+
+    dbg!(std::any::type_name_of_val(&builder));
+
+    let x: Foo = builder.build();
 
     dbg!(x);
 }
