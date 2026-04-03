@@ -8,7 +8,7 @@ use crate::{
     BuilderAttr, BuilderField, Len, Repeat,
     field::FieldIdents,
     type_state::generics::{CustomImplGenerics, CustomTypeGenerics},
-    util::ReplaceTrait,
+    util::{ReplaceTrait, ensure_no_conflict, known_idents},
 };
 
 mod generics;
@@ -67,11 +67,7 @@ fn build_fn(
             }
         } else if field.wrapped_option {
             quote! {
-                // SAFETY: #pascal is the state of the current field, if it's set, then the value
-                // has been set.
-                #name: unsafe {
-                    #private_module::state::into_option::<#pascal, _>(inner.#field_i)
-                }
+                #name: inner.#field_i
             }
         } else if let Some(default) = &field.attr.default {
             if let Some(default) = default {
@@ -186,11 +182,18 @@ fn build_fn(
 pub fn type_state_builder(
     builder_attr: &BuilderAttr,
     input: &DeriveInput,
-    fields: &[BuilderField],
+    mut fields: Vec<BuilderField>,
 ) -> TokenStream {
     let ident = &input.ident;
     let builder = format_ident!("{}Builder", ident);
     let builder_vis = &builder_attr.vis;
+
+    let known_idents = known_idents(input, &fields);
+    for f in &mut fields {
+        ensure_no_conflict(&mut f.idents.pascal, &known_idents);
+        ensure_no_conflict(&mut f.idents.set, &known_idents);
+        ensure_no_conflict(&mut f.idents.count, &known_idents);
+    }
 
     let generic_fields: Vec<_> = fields
         .iter()
@@ -342,7 +345,7 @@ pub fn type_state_builder(
     out.extend(build_fn(
         &builder,
         builder_attr,
-        fields,
+        &fields,
         &generic_fields,
         &len_structs,
         input,
@@ -350,7 +353,7 @@ pub fn type_state_builder(
     ));
 
     let mut i = 0;
-    for f in fields {
+    for f in &fields {
         let (args, value) = f.attr.to_args_and_value(f.arg_ty(), &f.ident);
         let fn_ident = f.function_ident(builder_attr);
 

@@ -11,7 +11,7 @@ use syn::{
     token::Paren,
 };
 
-use crate::{BuilderAttr, Kind};
+use crate::{BuilderAttr, Kind, util::escape_ident};
 
 pub(crate) fn get_single_generic<'a>(ty: &'a Type, name: Option<&str>) -> Option<&'a Type> {
     match ty {
@@ -179,6 +179,7 @@ impl Attribute {
     }
 }
 
+#[derive(Debug)]
 pub struct FieldIdents {
     pub pascal: Ident,
     pub set: Ident,
@@ -187,7 +188,9 @@ pub struct FieldIdents {
 
 impl FieldIdents {
     fn new(struct_name: &Ident, ident: &Ident) -> Self {
-        let pascal = Ident::new(&ident.to_string().to_case(Case::Pascal), ident.span());
+        let name = ident.to_string();
+        let name = name.trim_start_matches("r#");
+        let pascal = Ident::new(&name.to_case(Case::Pascal), ident.span());
         Self {
             set: format_ident!("{}_{}_Set", struct_name, pascal, span = pascal.span()),
             count: format_ident!("{}_{}_Count", struct_name, pascal, span = pascal.span()),
@@ -196,6 +199,7 @@ impl FieldIdents {
     }
 }
 
+#[derive(Debug)]
 pub struct BuilderField {
     pub ident: Ident,
     pub ty: Type,
@@ -241,7 +245,13 @@ impl BuilderField {
             &builder_attr.suffix
         };
 
-        format_ident!("{}{}{}", prefix, ident, suffix, span = ident.span())
+        escape_ident(format_ident!(
+            "{}{}{}",
+            prefix,
+            ident,
+            suffix,
+            span = ident.span()
+        ))
     }
 
     pub(crate) fn function(&self, builder_attr: &BuilderAttr, inner: &Ident) -> TokenStream {
@@ -286,19 +296,21 @@ impl BuilderField {
         index: usize,
     ) -> syn::Result<Self> {
         let ident = value.ident.as_ref().expect("We only support named fields");
-        let attr: FieldAttr = if let Some(attr) =
-            value.attrs.iter().find(|a| a.path().is_ident("builder"))
-        {
-            attr.parse_args_with(|input: ParseStream| FieldAttr::parse(input, builder_attr, value))?
-        } else {
-            FieldAttr::default()
-        };
 
         let (ty, wrapped_option) = if let Some(ty) = get_single_generic(&value.ty, Some("Option")) {
             (ty, true)
         } else {
             (&value.ty, false)
         };
+
+        let attr: FieldAttr =
+            if let Some(attr) = value.attrs.iter().find(|a| a.path().is_ident("builder")) {
+                attr.parse_args_with(|input: ParseStream| {
+                    FieldAttr::parse(input, builder_attr, value, wrapped_option)
+                })?
+            } else {
+                FieldAttr::default()
+            };
 
         let doc: Vec<syn::Attribute> = value
             .attrs
@@ -316,8 +328,14 @@ impl BuilderField {
         Ok(BuilderField {
             ident: ident.clone(),
             ty: ty.clone(),
-            missing_err: if attr.default.is_none() && attr.repeat.is_none() {
-                let mut ident = format_ident!("Missing{}", ident.to_string().to_case(Case::Pascal));
+            missing_err: if attr.default.is_none() && attr.repeat.is_none() && !wrapped_option {
+                let mut ident = format_ident!(
+                    "Missing{}",
+                    ident
+                        .to_string()
+                        .trim_start_matches("r#")
+                        .to_case(Case::Pascal)
+                );
                 ident.set_span(value.ident.as_ref().unwrap().span());
                 Some(ident)
             } else {
@@ -575,6 +593,7 @@ impl TryFrom<syn::Pat> for Len {
     }
 }
 
+#[derive(Debug)]
 pub struct Repeat {
     pub inner_ty: Type,
     pub len: Len,
@@ -632,7 +651,7 @@ impl Parse for Adapter {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct FieldAttr {
     /// Some(Some(expr)) -> default is expr
     /// Some(None)       -> default is Default::default()
@@ -689,6 +708,7 @@ impl FieldAttr {
         input: syn::parse::ParseStream,
         builder_attr: &BuilderAttr,
         field: &Field,
+        wrapped_option: bool,
     ) -> syn::Result<Self> {
         let mut out = FieldAttr::default();
         let field_ident = field.ident.as_ref().unwrap();
@@ -703,6 +723,10 @@ impl FieldAttr {
 
                     if out.repeat.is_some() {
                         bail!(ident.span() => "`default` cannot be added with `repeat`");
+                    }
+
+                    if wrapped_option {
+                        bail!(ident.span() => "`default` may not be used on `Option` fields");
                     }
 
                     let value: Option<Expr> = if input.peek(Token![=]) {
