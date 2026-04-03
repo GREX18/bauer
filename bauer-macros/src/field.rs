@@ -1,14 +1,17 @@
+use std::ops::Range;
+
 use convert_case::{Case, Casing};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::{
     Expr, ExprClosure, Field, Ident, LitStr, Meta, Pat, Token, Type, parenthesized,
     parse::{Parse, ParseStream},
+    parse_quote,
     spanned::Spanned,
     token::Paren,
 };
 
-use crate::BuilderAttr;
+use crate::{BuilderAttr, Kind};
 
 pub(crate) fn get_single_generic<'a>(ty: &'a Type, name: Option<&str>) -> Option<&'a Type> {
     match ty {
@@ -179,7 +182,6 @@ impl Attribute {
 pub struct FieldIdents {
     pub pascal: Ident,
     pub set: Ident,
-    pub unset: Ident,
     pub count: Ident,
 }
 
@@ -187,9 +189,8 @@ impl FieldIdents {
     fn new(struct_name: &Ident, ident: &Ident) -> Self {
         let pascal = Ident::new(&ident.to_string().to_case(Case::Pascal), ident.span());
         Self {
-            set: format_ident!("{}{}Set", struct_name, pascal, span = pascal.span()),
-            unset: format_ident!("{}{}Unset", struct_name, pascal, span = pascal.span()),
-            count: format_ident!("{}{}Count", struct_name, pascal, span = pascal.span()),
+            set: format_ident!("{}_{}_Set", struct_name, pascal, span = pascal.span()),
+            count: format_ident!("{}_{}_Count", struct_name, pascal, span = pascal.span()),
             pascal,
         }
     }
@@ -281,14 +282,20 @@ impl BuilderField {
         }
     }
 
-    pub fn parse(value: &Field, struct_name: &Ident, index: usize) -> syn::Result<Self> {
+    pub fn parse(
+        value: &Field,
+        builder_attr: &BuilderAttr,
+        struct_name: &Ident,
+        index: usize,
+    ) -> syn::Result<Self> {
         let ident = value.ident.as_ref().expect("We only support named fields");
-        let attr: FieldAttr =
-            if let Some(attr) = value.attrs.iter().find(|a| a.path().is_ident("builder")) {
-                attr.parse_args_with(|input: ParseStream| FieldAttr::parse(input, value))?
-            } else {
-                FieldAttr::default()
-            };
+        let attr: FieldAttr = if let Some(attr) =
+            value.attrs.iter().find(|a| a.path().is_ident("builder"))
+        {
+            attr.parse_args_with(|input: ParseStream| FieldAttr::parse(input, builder_attr, value))?
+        } else {
+            FieldAttr::default()
+        };
 
         let (ty, wrapped_option) = if let Some(ty) = get_single_generic(&value.ty, Some("Option")) {
             (ty, true)
@@ -328,9 +335,253 @@ impl BuilderField {
     }
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum Len {
+    /// No length specified
+    None,
+    /// Length specified, but parsing was not necessary (not type-state builder)
+    Raw {
+        pattern: Pat,
+        error: Ident,
+    },
+    Int(usize),
+    Range {
+        start: usize,
+        end: Option<usize>,
+        inclusive: bool,
+        pat: syn::Pat,
+    },
+}
+
+impl Len {
+    pub fn is_some(&self) -> bool {
+        match self {
+            Len::None => false,
+            Len::Raw { .. } | Len::Int(_) | Len::Range { .. } => true,
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        match self {
+            Len::None => true,
+            Len::Raw { .. } | Len::Int(_) | Len::Range { .. } => false,
+        }
+    }
+
+    fn range(&self) -> Option<Range<usize>> {
+        match self {
+            Len::None => None,
+            Len::Raw { .. } => None,
+            Len::Int(n) => Some(*n..*n + 1),
+            Len::Range {
+                start, end: None, ..
+            } => Some(*start..usize::MAX),
+            Len::Range {
+                start,
+                end: Some(end),
+                inclusive,
+                ..
+            } => Some(*start..*end + usize::from(*inclusive)),
+        }
+    }
+
+    fn expanded_tuple(base: Type, depth: usize) -> Type {
+        let mut out = base;
+        for _ in 0..depth {
+            out = parse_quote! { (#out, ()) };
+        }
+        out
+    }
+
+    pub fn to_trait(&self, out: &mut TokenStream) -> syn::Result<Ident> {
+        match self {
+            Len::None => unreachable!("Len::into_trait called on None"),
+            Len::Raw { .. } => unreachable!("Len::into_trait called on Raw"),
+            Len::Int(len) => {
+                let ident = format_ident!("Eq_{}", len);
+                let expanded = Self::expanded_tuple(parse_quote! { () }, *len);
+                out.extend(quote! {
+                    #[allow(non_camel_case_types)]
+                    trait #ident {}
+                    impl #ident for #expanded {}
+                });
+                Ok(ident)
+            }
+            Len::Range {
+                start,
+                end: Some(end),
+                inclusive,
+                #[allow(unused)] // used by the unlimited_range feature section below
+                pat,
+            } => {
+                if start >= end {
+                    bail!(start.span() => "start must be less than end");
+                }
+
+                let range = self.range().expect("Len::range is Some for Len::Range");
+
+                #[cfg(not(feature = "unlimited_range"))]
+                if range.len() > 64 {
+                    bail!(
+                        pat.span() =>
+                        "Range length is limited to 64 by default as big ranges slow compile-time.  This setting may be overridden with the `unlimited_range` feature.  Alternatively, half-open ranges like `5..` and integer constants are faster"
+                    );
+                }
+
+                let ident = format_ident!(
+                    "Range_{}_{}{}",
+                    start,
+                    end,
+                    if *inclusive { "_Inclusive" } else { "" },
+                );
+                out.extend(quote! {
+                    #[allow(non_camel_case_types)]
+                    trait #ident {}
+                });
+
+                for i in range {
+                    let expanded = Self::expanded_tuple(parse_quote! { () }, i);
+                    out.extend(quote! {
+                        impl #ident for #expanded {}
+                    });
+                }
+
+                Ok(ident)
+            }
+            Len::Range {
+                start, end: None, ..
+            } => {
+                let ident = format_ident!("Gte_{}", start);
+                let expanded = Self::expanded_tuple(parse_quote! { T }, *start);
+                out.extend(quote! {
+                    #[allow(non_camel_case_types)]
+                    trait #ident {}
+                    impl<T> #ident for #expanded {}
+                });
+                Ok(ident)
+            }
+        }
+    }
+}
+
+impl TryFrom<syn::Pat> for Len {
+    type Error = syn::Error;
+
+    fn try_from(pat: syn::Pat) -> Result<Self, Self::Error> {
+        let v = match pat {
+            syn::Pat::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(int),
+                ..
+            }) => {
+                let len = int.base10_parse()?;
+                Len::Int(len)
+            }
+            syn::Pat::Range(syn::ExprRange {
+                start: Some(ref start),
+                end: Some(ref end),
+                limits,
+                ..
+            }) => {
+                let start: usize = match &**start {
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Int(start),
+                        ..
+                    }) => start.base10_parse()?,
+                    _ => {
+                        bail!(start.span() => "start must be an integer literal");
+                    }
+                };
+
+                let end: usize = match &**end {
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Int(end),
+                        ..
+                    }) => end.base10_parse()?,
+                    _ => {
+                        bail!(end.span() => "end must be an integer literal");
+                    }
+                };
+
+                match limits {
+                    syn::RangeLimits::HalfOpen(_) => Len::Range {
+                        start,
+                        end: Some(end),
+                        inclusive: false,
+                        pat,
+                    },
+                    syn::RangeLimits::Closed(_) => Len::Range {
+                        start,
+                        end: Some(end),
+                        inclusive: true,
+                        pat,
+                    },
+                }
+            }
+            syn::Pat::Range(syn::ExprRange {
+                start: None,
+                end: Some(ref end),
+                limits,
+                ..
+            }) => {
+                let end: usize = match &**end {
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Int(end),
+                        ..
+                    }) => end.base10_parse()?,
+                    _ => {
+                        bail!(end.span() => "end must be an integer literal");
+                    }
+                };
+
+                match limits {
+                    syn::RangeLimits::HalfOpen(_) => Len::Range {
+                        start: 0,
+                        end: Some(end),
+                        inclusive: false,
+                        pat,
+                    },
+                    syn::RangeLimits::Closed(_) => Len::Range {
+                        start: 0,
+                        end: Some(end),
+                        inclusive: true,
+                        pat,
+                    },
+                }
+            }
+            syn::Pat::Range(syn::ExprRange {
+                start: Some(ref start),
+                end: None,
+                ..
+            }) => {
+                let start: usize = match &**start {
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Int(int),
+                        ..
+                    }) => int.base10_parse()?,
+                    _ => {
+                        bail!(start.span() => "start must be an integer literal");
+                    }
+                };
+
+                Len::Range {
+                    start,
+                    end: None,
+                    inclusive: false,
+                    pat,
+                }
+            }
+            _ => {
+                bail!(pat.span() => "repeat_n on type-state builders can only use integer literals and ranges");
+            }
+        };
+        Ok(v)
+    }
+}
+
 pub struct Repeat {
     pub inner_ty: Type,
-    pub len: Option<(Pat, Ident)>,
+    pub len: Len,
+    pub array: bool,
 }
 
 #[derive(Debug)]
@@ -444,7 +695,11 @@ impl FieldAttr {
         }
     }
 
-    fn parse(input: syn::parse::ParseStream, field: &Field) -> syn::Result<Self> {
+    fn parse(
+        input: syn::parse::ParseStream,
+        builder_attr: &BuilderAttr,
+        field: &Field,
+    ) -> syn::Result<Self> {
         let mut out = FieldAttr::default();
         let field_ident = field.ident.as_ref().unwrap();
 
@@ -453,7 +708,7 @@ impl FieldAttr {
             match Attribute::parse(&ident)? {
                 Attribute::Default => {
                     if out.default.is_some() {
-                        bail!(ident.span() => "`default` may only be used once.");
+                        bail!(ident.span() => "`default` may only be used once");
                     }
 
                     if out.repeat.is_some() {
@@ -472,7 +727,7 @@ impl FieldAttr {
                 }
                 Attribute::Into => {
                     if out.into {
-                        bail!(ident.span() => "`into` may only be used once.");
+                        bail!(ident.span() => "`into` may only be used once");
                     }
 
                     if out.adapter.is_some() {
@@ -483,27 +738,54 @@ impl FieldAttr {
                 }
                 Attribute::Repeat => {
                     if out.repeat.is_some() {
-                        bail!(ident.span() => "`repeat` may only be used once.");
+                        bail!(ident.span() => "`repeat` may only be used once");
                     }
 
                     if out.default.is_some() {
                         bail!(ident.span() => "`repeat` cannot be added with `default`");
                     }
 
-                    let inner = if input.peek(Token![=]) {
+                    let (inner, len, array) = if input.peek(Token![=]) {
+                        if let Type::Array(_) = &field.ty {
+                            bail!(ident.span() => "`repeat` cannot be used with a type on arrays");
+                        }
+
                         let _: Token![=] = input.parse()?;
                         let s: Type = input.parse()?;
-                        s
+                        (s, Len::None, false)
                     } else {
                         let Some(inner) = get_single_generic(&field.ty, None) else {
                             bail!(field.ty.span() => "Inner type must be specified to repeat on type without generics");
                         };
-                        inner.clone()
+
+                        if let Type::Array(array) = &field.ty {
+                            let len = &array.len;
+                            let pattern: Pat = parse_quote! { #len };
+
+                            let len = if builder_attr.kind == Kind::TypeState {
+                                let len = Len::try_from(pattern)?;
+                                if let Len::Range { .. } = len {
+                                    unreachable!("Arrays can't have ranges for length");
+                                }
+                                len
+                            } else {
+                                let error = format_ident!(
+                                    "Range{}",
+                                    field_ident.to_string().to_case(Case::Pascal)
+                                );
+                                Len::Raw { pattern, error }
+                            };
+
+                            (inner.clone(), len, true)
+                        } else {
+                            (inner.clone(), Len::None, false)
+                        }
                     };
 
                     out.repeat = Some(Repeat {
                         inner_ty: inner,
-                        len: None,
+                        len,
+                        array,
                     });
                 }
                 Attribute::RepeatN => {
@@ -511,19 +793,32 @@ impl FieldAttr {
                         bail!(ident.span() => "`repeat_n` may only be used with `repeat`");
                     };
 
+                    if rep.array {
+                        bail!(ident.span() => "`repeat_n` may not be used on arrays");
+                    }
+
                     if rep.len.is_some() {
-                        bail!(ident.span() => "`repeat_n` may only be used once.");
+                        bail!(ident.span() => "`repeat_n` may only be used once");
                     }
 
                     let _: Token![=] = input.parse()?;
 
-                    let err =
-                        format_ident!("Range{}", field_ident.to_string().to_case(Case::Pascal));
-                    rep.len = Some((Pat::parse_multi(input)?, err));
+                    let pat = Pat::parse_multi(input)?;
+
+                    rep.len = if builder_attr.kind == Kind::TypeState {
+                        Len::try_from(pat)?
+                    } else {
+                        let err =
+                            format_ident!("Range{}", field_ident.to_string().to_case(Case::Pascal));
+                        Len::Raw {
+                            pattern: pat,
+                            error: err,
+                        }
+                    };
                 }
                 Attribute::Rename => {
                     if out.rename.is_some() {
-                        bail!(ident.span() => "`rename` may only be used once.");
+                        bail!(ident.span() => "`rename` may only be used once");
                     }
 
                     let _: Token![=] = input.parse()?;
@@ -533,19 +828,19 @@ impl FieldAttr {
                 }
                 Attribute::SkipPrefix => {
                     if out.skip_prefix {
-                        bail!(ident.span() => "`skip_prefix` may only be used once.");
+                        bail!(ident.span() => "`skip_prefix` may only be used once");
                     }
                     out.skip_prefix = true;
                 }
                 Attribute::SkipSuffix => {
                     if out.skip_suffix {
-                        bail!(ident.span() => "`skip_suffix` may only be used once.");
+                        bail!(ident.span() => "`skip_suffix` may only be used once");
                     }
                     out.skip_suffix = true;
                 }
                 Attribute::Tuple => {
                     if out.tuple.is_some() {
-                        bail!(ident.span() => "`tuple` may only be used once.");
+                        bail!(ident.span() => "`tuple` may only be used once");
                     }
 
                     if out.adapter.is_some() {
@@ -587,7 +882,7 @@ impl FieldAttr {
                 }
                 Attribute::Adapter => {
                     if out.adapter.is_some() {
-                        bail!(ident.span() => "`adapter` may only be used once.");
+                        bail!(ident.span() => "`adapter` may only be used once");
                     }
 
                     if out.tuple.is_some() {

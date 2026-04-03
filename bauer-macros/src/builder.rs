@@ -1,11 +1,13 @@
 use std::str::FromStr;
 
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use strum::{IntoStaticStr, VariantArray};
 use syn::{
     Ident, LitStr, Token, Visibility,
+    ext::IdentExt,
     parse::{Parse, ParseStream},
+    parse_quote,
 };
 
 macro_rules! bail {
@@ -51,13 +53,14 @@ impl Parse for Kind {
     }
 }
 
-#[derive(Clone, Copy, VariantArray, IntoStaticStr)]
+#[derive(Clone, Copy, VariantArray, IntoStaticStr, Debug, PartialEq, Eq)]
 #[strum(serialize_all = "snake_case")]
 enum Attribute {
     Kind,
     Prefix,
     Suffix,
     Visibility,
+    Crate,
 }
 
 impl Attribute {
@@ -101,6 +104,7 @@ pub struct BuilderAttr {
     pub prefix: String,
     pub suffix: String,
     pub vis: Visibility,
+    pub krate: Ident,
 }
 
 impl BuilderAttr {
@@ -109,8 +113,14 @@ impl BuilderAttr {
             kind: Default::default(),
             prefix: Default::default(),
             suffix: Default::default(),
+            krate: format_ident!("bauer"),
             vis,
         }
+    }
+
+    pub fn private_module(&self) -> syn::Path {
+        let krate = &self.krate;
+        parse_quote! { ::#krate::__private }
     }
 
     pub fn self_param(&self) -> TokenStream {
@@ -138,9 +148,10 @@ impl BuilderAttr {
         let mut prefix_set = false;
         let mut suffix_set = false;
         let mut vis_set = false;
+        let mut crate_set = false;
 
-        while input.peek(syn::Ident) {
-            let ident = input.parse()?;
+        while input.peek(Ident) || input.peek(Token![crate]) {
+            let ident = Ident::parse_any(input)?;
             match Attribute::parse(&ident)? {
                 Attribute::Kind => {
                     if kind_set {
@@ -177,6 +188,15 @@ impl BuilderAttr {
                     let _: Token![=] = input.parse()?;
                     out.vis = input.parse()?;
                     vis_set = true;
+                }
+                Attribute::Crate => {
+                    if crate_set {
+                        bail!(ident.span() => "`crate` may only be used once.");
+                    }
+
+                    let _: Token![=] = input.parse()?;
+                    out.krate = input.parse()?;
+                    crate_set = true;
                 }
             }
 

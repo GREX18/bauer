@@ -1,86 +1,3 @@
-//! Bauer is a crate for automatically generating Builder-patterns for your structs!
-//!
-//! Not sure what kind of builder you want?  Bauer supports a variety of sub-patterns: Owned,
-//! Borrowed, and even Type-State!
-//!
-//! # Examples
-//!
-//! ```rust
-//! # use bauer::Builder;
-//! #[derive(Builder)]
-//! #[builder(kind = "type-state")]
-//! pub struct Foo {
-//!     required_field: u32,
-//!     #[builder(default)]
-//!     default_field: u32,
-//!     #[builder(into)]
-//!     converting_field: String,
-//!     #[builder(repeat)]
-//!     repeating_field: Vec<u32>,
-//!     #[builder(repeat, repeat_n = 1..=3)]
-//!     limited_repeating_field: Vec<u32>,
-//! }
-//!
-//! let foo: Foo = Foo::builder()
-//!     .required_field(42)
-//!     // .default_field(69) // defaults to 0
-//!     .converting_field("hello world") // calls `.into()` to convert from &str -> String
-//!     .repeating_field(420)
-//!     .repeating_field(1337)
-//!     .limited_repeating_field(0) // If not called 1..=3 times, this will fail
-//!     .build();
-//! ```
-//!
-//! Check out [the repository](https://github.com/funnyboy-roks/bauer/tree/main/examples) for more
-//! examples!
-//!
-//! # Configuration
-//!
-//! Builders are very configurable.  A few of the biggest features can be found below.  For a more
-//! comprehensive collection of features, look at the [`Builder`] macro.
-//!
-//! ## Kinds
-//!
-//! Bauer supports generating 3 kinds of builders:
-//!
-//! ### **Owned** (default) / **Borrowed**
-//!
-//! `"owned"` builders are passed around by value and `"borrowed"` builders are passed by mutable
-//! reference.
-//!
-//! ### **Type-State**
-//!
-//! `"type-state"` builders use the type-state pattern and generate builds that are validated at
-//! compile-time using the type system.
-//!
-//! Builder kinds can be switched between trivially using `#[builder(kind = <kind>)]` on the
-//! struct.
-//!
-//! ## Field Attributes
-//!
-//! These attributes go in `#[builder(..)]` on individual fields of the structure
-//!
-//! ### **`default`**
-//!
-//! Specify a default value for the field to have, or use [`Default::default`]
-//!
-//! ### **`repeat`**
-//!
-//! Allow any structure which supports [`FromIterator`] to be specified by calling the function
-//! multiple times.  If `repeat_n` is specified, the number of times to repeat is limited.
-//!
-//! ### **`into`**/**`tuple`**/**`adapter`**
-//!
-//! Change how the generated builder function handles input.  Can also be used with `repeat`.
-//!
-//! - `into` will make the function accepet `impl Into<T>`  
-//! - `tuple` will make the function accept each item as a separate argument
-//! - `adapter` can specify each argument and how they should be converted into the value
-//!
-//! **There are many more attributes, all can be found on the [`Builder`] macro.**
-//!
-//! [`Builder`]: https://docs.rs/bauer/latest/bauer/derive.Builder.html
-
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
@@ -88,7 +5,7 @@ use syn::{DeriveInput, parse::ParseStream, parse_macro_input, spanned::Spanned};
 
 use crate::{
     builder::{BuilderAttr, Kind},
-    field::{BuilderField, Repeat},
+    field::{BuilderField, Len, Repeat},
 };
 
 mod builder;
@@ -101,8 +18,7 @@ mod util;
 /// # Usage
 ///
 /// ```
-/// use bauer::Builder;
-///
+/// # use bauer_macros::Builder;
 /// #[derive(Builder)]
 /// pub struct Foo {
 ///     #[builder(default = "42")]
@@ -148,7 +64,7 @@ mod util;
 /// The builder functions consume and generate owned values
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// #[derive(Builder)]
 /// #[builder(kind = "owned")]
 /// pub struct Foo {
@@ -168,7 +84,7 @@ mod util;
 /// _Note: After calling `.build()`, the builder is reset_
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// #[derive(Builder)]
 /// #[builder(kind = "borrowed")]
 /// pub struct Foo {
@@ -193,7 +109,7 @@ mod util;
 /// the final structure is infallible.
 ///
 /// ```compile_fail
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// #[derive(Builder)]
 /// #[builder(kind = "type-state")]
 /// pub struct Foo {
@@ -212,7 +128,7 @@ mod util;
 /// Set the prefix or suffix for the generated builder functions
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// #[derive(Builder)]
 /// #[builder(prefix = "set_")]
 /// pub struct Foo {
@@ -235,9 +151,25 @@ mod util;
 /// module.
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// #[derive(Builder)]
 /// #[builder(visibility = pub(crate))]
+/// pub struct Foo {
+///     a: u32,
+/// }
+/// ```
+///
+/// ## **`crate`**
+///
+/// Default: `bauer`
+///
+/// The name of this crate in the current crate.  This should only be needed if you rename the
+/// dependency in your `Cargo.toml`
+///
+/// ```
+/// # use bauer_macros::Builder;
+/// #[derive(Builder)]
+/// #[builder(crate = not_bauer)]
 /// pub struct Foo {
 ///     a: u32,
 /// }
@@ -253,7 +185,7 @@ mod util;
 /// If not value is provided to the `default` attribute, then [`Default::default`] will be used.
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// # const _: &str = stringify!(
 /// #[derive(Builder)]
 /// # );
@@ -282,7 +214,7 @@ mod util;
 /// can be specified using `repeat = <type>`.
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// # const _: &str = stringify!(
 /// #[derive(Builder)]
 /// # );
@@ -333,7 +265,7 @@ mod util;
 /// `unlimited_range` feature.
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// # const _: &str = stringify!(
 /// #[derive(Builder)]
 /// # );
@@ -363,7 +295,7 @@ mod util;
 /// Make the function that is generated use a different name from field itself.
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// # const _: &str = stringify!(
 /// #[derive(Builder)]
 /// # );
@@ -386,7 +318,7 @@ mod util;
 /// of this function.  This is epecially useful with `rename`.
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// # const _: &str = stringify!(
 /// #[derive(Builder)]
 /// # );
@@ -409,7 +341,7 @@ mod util;
 /// Make the method accept anything can be turned into the field.
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// # const _: &str = stringify!(
 /// #[derive(Builder)]
 /// # );
@@ -437,7 +369,7 @@ mod util;
 /// Note: If used with `repeat`, `repeat` must come before `tuple`.
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// #[derive(Builder)]
 /// pub struct Foo {
 ///     #[builder(tuple)]
@@ -469,7 +401,7 @@ mod util;
 /// Conflicts with `into` and `tuple`.
 ///
 /// ```
-/// # use bauer::Builder;
+/// # use bauer_macros::Builder;
 /// # const _: &str = stringify!(
 /// #[derive(Builder)]
 /// # );
@@ -527,7 +459,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
             .named
             .iter()
             .enumerate()
-            .map(|(index, f)| BuilderField::parse(f, ident, index))
+            .map(|(index, f)| BuilderField::parse(f, &attr, ident, index))
             .collect::<Result<_, _>>()
         {
             Ok(v) => v,
@@ -545,9 +477,22 @@ pub fn builder(input: TokenStream) -> TokenStream {
         }
     };
 
+    let private_module = attr.private_module();
     let fields = fields_named.iter().map(|f| {
-        if let Some(Repeat { inner_ty, .. }) = &f.attr.repeat {
-            quote! { ::std::vec::Vec<#inner_ty> }
+        if let Some(Repeat {
+            inner_ty,
+            array,
+            len,
+        }) = &f.attr.repeat
+        {
+            if *array {
+                let Len::Raw { pattern, .. } = &len else {
+                    unreachable!("If array, then Len::Raw set");
+                };
+                quote! { #private_module::PushableArray<#pattern, #inner_ty> }
+            } else {
+                quote! { ::std::vec::Vec<#inner_ty> }
+            }
         } else {
             let ty = &f.ty;
             quote! { ::core::option::Option<#ty> }
@@ -575,16 +520,16 @@ pub fn builder(input: TokenStream) -> TokenStream {
                 ));
             }
             if let Some(Repeat {
-                len: Some((len, err)),
+                len: Len::Raw { pattern, error },
                 ..
             }) = &f.attr.repeat
             {
                 variants.push((
                     quote! {
-                        #err(usize)
+                        #error(usize)
                     },
                     quote!{
-                        Self::#err(n) => write!(f, "Invalid number of repeat arguments provided.  Expected {:?}, got {}", #len, n)
+                        Self::#error(n) => write!(f, "Invalid number of repeat arguments provided.  Expected {:?}, got {}", #pattern, n)
                     },
                 ));
             }
@@ -596,18 +541,27 @@ pub fn builder(input: TokenStream) -> TokenStream {
         let name = &field.ident;
         let field_i = field.tuple_index();
 
-        if let Some(Repeat { inner_ty, len, .. }) = &field.attr.repeat {
-            if let Some((range, err)) = len {
-                quote_spanned! {
-                    range.span() =>
+        if let Some(rep @ Repeat { inner_ty, .. }) = &field.attr.repeat {
+            if let Len::Raw { pattern, error } = &rep.len {
+                let value = if rep.array {
+                    quote_spanned! { inner_ty.span()=> {
+                        let arr = ::core::mem::take(&mut self.#inner.#field_i);
+                        arr.into_array()
+                            .expect("The match ensures the length of this array is correct")
+                    }}
+                } else {
+                    quote_spanned! { inner_ty.span()=>
+                        self.#inner.#field_i.drain(..).collect()
+                    }
+                };
+                quote_spanned! { pattern.span()=>
                     #name: match self.#inner.#field_i.len() {
-                        #range => self.#inner.#field_i.drain(..).collect(),
-                        len => return Err(#build_err::#err(len)),
+                        #pattern => #value, // TODO: Take and then slice.try_into()
+                        len => return Err(#build_err::#error(len)),
                     }
                 }
             } else {
-                quote_spanned! {
-                    inner_ty.span() =>
+                quote_spanned! { inner_ty.span()=>
                     // using associated function syntax as that gives better error messages
                     // (i.e., not "call chain may not have expected associated type"
                     #name: ::std::iter::FromIterator::from_iter(self.#inner.#field_i.drain(..))
