@@ -196,6 +196,34 @@ mod util;
 /// }
 /// ```
 ///
+/// ## **`attributes` / `build_fn_attributes`**
+///
+/// Any attributes specified in `attributes` will be added to the generated builder struct.
+/// Similarly, any attributes specified in `build_fn_attributes` will be added to generated
+/// `.build()` function.
+///
+/// You may also use `attribute` instead of `attributes` and `build_fn_attribute` instead of
+/// `build_fn_attributes`.
+///
+/// ```
+/// # use bauer_macros::Builder;
+/// # use attribute::{my_attribute, my_attribute2};
+/// #[derive(Builder)]
+/// #[builder(
+///     attributes(
+///         #[my_attribute]
+///         #[my_attribute2]
+///     ),
+///     build_fn_attributes(
+///         #[my_attribute]
+///         #[my_attribute2]
+///     ),
+/// )]
+/// pub struct Foo {
+///     field: u32,
+/// }
+/// ```
+///
 /// # Fields Attributes
 ///
 /// ## **`default`**
@@ -438,6 +466,26 @@ mod util;
 ///     .unwrap();
 /// assert_eq!(foo, Foo { field: String::from("5/23") });
 /// ```
+///
+/// ## **`attributes`
+///
+/// Any attributes specified in `attributes` will be added to the generated function for this
+/// field.  You may also use `attribute` insted of `attributes`.
+///
+/// ```
+/// # use bauer_macros::Builder;
+/// # use attribute::{my_attribute, my_attribute2};
+/// #[derive(Builder)]
+/// pub struct Foo {
+///     #[builder(
+///         attributes(
+///             #[my_attribute]
+///             #[my_attribute2]
+///         ),
+///     )]
+///     field: u32,
+/// }
+/// ```
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn builder(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -643,9 +691,11 @@ pub fn builder(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let konst = attr.konst_kw();
+    let builder_fn_attributes = &attr.build_fn_attributes;
 
     let build_fn = if build_err_variants.is_empty() {
         quote! {
+            #(#builder_fn_attributes)*
             #builder_vis #konst fn build(#self_param) -> #ident #ty_generics {
                 #[allow(deprecated)] // #inner is set to deprecated
                 {
@@ -657,6 +707,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
         }
     } else {
         quote! {
+            #(#builder_fn_attributes)*
             #builder_vis #konst fn build(#self_param) -> ::core::result::Result<#ident #ty_generics, #build_err> {
                 #[allow(deprecated)] // #inner is set to deprecated
                 {
@@ -711,9 +762,12 @@ pub fn builder(input: TokenStream) -> TokenStream {
         }
     };
 
+    let builder_attributes = &attr.attributes;
+
     quote! {
         #build_err_enum
 
+        #(#builder_attributes)*
         #[must_use = "The builder doesn't construct its type until `.build()` is called"]
         #builder_vis struct #builder #impl_generics #where_clause {
             #[deprecated = "This field is for internal use only; You almost certainly don't need to touch this. If you encounter a bug or missing feature, file an issue on the repo."]
