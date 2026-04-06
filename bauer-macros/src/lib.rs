@@ -1,7 +1,9 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
-use syn::{DeriveInput, parse::ParseStream, parse_macro_input, spanned::Spanned};
+use syn::{
+    DeriveInput, parse::ParseStream, parse_macro_input, parse_quote_spanned, spanned::Spanned,
+};
 
 use crate::{
     builder::{BuilderAttr, Kind},
@@ -492,6 +494,48 @@ mod util;
 /// assert_eq!(foo, Foo { field: String::from("5/23") });
 /// ```
 ///
+/// ## **`collector`**
+///
+/// On fields that use `repeat`, a collector may be specified to use in place of the default
+/// [`FromIterator`] in order to collect the added values differently.
+///
+/// `collector` may not be used on fields that are arrays.
+///
+/// [`FromIterator`]: std::iter::FromIterator
+///
+/// The function passed to `collector` is expected to have the following signature:
+///
+/// ```ignore
+/// fn my_collector(iter: impl ExactSizeIterator<Item = RepeatType>) -> FieldType;
+/// ```
+///
+/// Where `RepeatType` is the type determined by the `repeat` attribute and `FieldType` is the type
+/// of the field.
+///
+/// ```
+/// // Because Iterator is a super-trait of ExactSizeIterator, it may be used instead:
+/// fn sum_collector(iter: impl Iterator<Item = u64>) -> u64 {
+///     iter.sum()
+/// }
+///
+/// # use bauer_macros::Builder;
+/// # const _: &str = stringify!(
+/// #[derive(Builder)]
+/// # );
+/// # #[derive(Builder, PartialEq, Debug)]
+/// pub struct Foo {
+///     #[builder(repeat = u64, collector = sum_collector)]
+///     sum: u64,
+/// }
+///
+/// let foo = Foo::builder()
+///     .sum(21)
+///     .sum(34)
+///     .sum(55)
+///     .build();
+/// assert_eq!(foo.sum, 21 + 34 + 55);
+/// ```
+///
 /// ## **`attributes`**
 ///
 /// Any attributes specified in `attributes` will be added to the generated function for this
@@ -608,6 +652,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
                 inner_ty,
                 array,
                 len,
+                ..
             }) = &f.attr.repeat
             {
                 if *array {
@@ -672,7 +717,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
         let name = &field.ident;
         let field_i = field.tuple_index();
 
-        if let Some(rep @ Repeat { inner_ty, .. }) = &field.attr.repeat {
+        if let Some(rep @ Repeat { inner_ty, collector, .. }) = &field.attr.repeat {
             if let Len::Raw { pattern, error } = &rep.len {
                 let value = if rep.array {
                     quote_spanned! { inner_ty.span()=> {
@@ -681,21 +726,29 @@ pub fn builder(input: TokenStream) -> TokenStream {
                             .expect("The match ensures the length of this array is correct")
                     }}
                 } else {
-                    quote_spanned! { inner_ty.span()=>
-                        self.#inner.#field_i.drain(..).collect()
-                    }
+                    assert!(!rep.array);
+                    assert!(!attr.konst);
+
+                    collector.collect(parse_quote_spanned! {inner_ty.span()=>
+                        self.#inner.#field_i.drain(..)
+                    })
                 };
+
                 quote_spanned! { pattern.span()=>
                     #name: match self.#inner.#field_i.len() {
-                        #pattern => #value, // TODO: Take and then slice.try_into()
+                        #pattern => #value,
                         len => return Err(#build_err::#error(len)),
                     }
                 }
             } else {
+                assert!(!rep.array);
+                assert!(!attr.konst);
+                let value = collector.collect(parse_quote_spanned! {inner_ty.span()=>
+                    self.#inner.#field_i.drain(..)
+                });
+
                 quote_spanned! { inner_ty.span()=>
-                    // using associated function syntax as that gives better error messages
-                    // (i.e., not "call chain may not have expected associated type"
-                    #name: ::std::iter::FromIterator::from_iter(self.#inner.#field_i.drain(..))
+                    #name: #value
                 }
             }
         } else if field.wrapped_option {
@@ -703,24 +756,12 @@ pub fn builder(input: TokenStream) -> TokenStream {
                 #name: self.#inner.#field_i.take()
             }
         } else if let Some(default) = &field.attr.default {
-            if let Some(default) = default {
-                if let Some(span) = field.attr.into {
-                    quote_spanned! {span=>
-                        #name: self.#inner.#field_i.take().unwrap_or_else(|| #default.into())
-                    }
-                } else {
-                    quote! {
-                        // NOTE: not using Option::unwrap_or_else, since it's not stable in const
-                        #name: match self.#inner.#field_i.take() {
-                            Some(v) => v,
-                            None => #default
-                        }
-                    }
-                }
-            } else {
-                quote_spanned! {
-                    field.ty.span() =>
-                    #name: self.#inner.#field_i.take().unwrap_or_default()
+            let default = default.to_value(field.attr.into);
+            quote! {
+                // NOTE: not using Option::unwrap_or_else, since it's not stable in const
+                #name: match self.#inner.#field_i.take() {
+                    Some(v) => v,
+                    None => #default
                 }
             }
         } else {

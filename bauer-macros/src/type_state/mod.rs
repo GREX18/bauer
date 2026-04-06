@@ -2,7 +2,9 @@ use std::collections::{HashMap, hash_map::Entry};
 
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
-use syn::{DeriveInput, Ident, Token, Type, TypePath, parse_quote, spanned::Spanned};
+use syn::{
+    DeriveInput, Ident, Token, Type, TypePath, parse_quote, parse_quote_spanned, spanned::Spanned,
+};
 
 use crate::{
     BuilderAttr, BuilderField, Len, Repeat,
@@ -35,17 +37,19 @@ fn build_fn(
             inner_ty,
             len: Len::Int(_),
             array,
+            collector,
         }) = &field.attr.repeat
         {
             let value = if *array {
-                quote! {
-                    array
-                }
+                quote! { array }
             } else {
-                quote! {
-                    ::core::iter::FromIterator::from_iter(array.into_iter())
-                }
+                assert!(!builder_attr.konst);
+                assert!(!*array);
+                collector.collect(parse_quote_spanned! { inner_ty.span()=>
+                    array.into_iter()
+                })
             };
+
             quote_spanned! {
                 inner_ty.span() =>
                 #name: {
@@ -55,46 +59,37 @@ fn build_fn(
                     #value
                 }
             }
-        } else if let Some(Repeat { inner_ty, .. }) = &field.attr.repeat {
-            quote_spanned! {
-                inner_ty.span() =>
-                // using associated function syntax as that gives better error messages
-                // (i.e., not "call chain may not have expected associated type"
-                #name: {
-                    let _: &::std::vec::Vec<_> = &inner.#field_i; // assert that the types are correct
-                    ::core::iter::FromIterator::from_iter(inner.#field_i.into_iter())
-                }
+        } else if let Some(Repeat {
+            inner_ty,
+            collector,
+            array,
+            ..
+        }) = &field.attr.repeat
+        {
+            assert!(!builder_attr.konst);
+            assert!(!*array);
+            let collect = collector.collect(parse_quote_spanned! { inner_ty.span()=> {
+                let _: &::std::vec::Vec<_> = &inner.#field_i; // assert that the types are correct
+                inner.#field_i.into_iter()
+            }});
+
+            quote_spanned! { inner_ty.span()=>
+                #name: #collect
             }
         } else if field.wrapped_option {
             quote! {
                 #name: inner.#field_i
             }
         } else if let Some(default) = &field.attr.default {
-            if let Some(default) = default {
-                let default = if let Some(span) = field.attr.into {
-                    quote_spanned! {span=> ::core::convert::Into::into(#default) }
+            let default = default.to_value(field.attr.into);
+
+            quote_spanned! {field.ty.span()=>
+                // TODO: make this a function once const traits are stable
+                #name: if <#pascal as #private_module::state::BuilderState>::SET {
+                    // SAFETY: If #pascal::SET is true, then we have already set #field_i
+                    unsafe { inner.#field_i.assume_init() }
                 } else {
-                    quote! { #default }
-                };
-                quote! {
-                    // TODO: make this a function once const traits are stable
-                    #name: if <#pascal as #private_module::state::BuilderState>::SET {
-                        // SAFETY: If #pascal::SET is true, then we have already set #field_i
-                        unsafe { inner.#field_i.assume_init() }
-                    } else {
-                        #default
-                    }
-                }
-            } else {
-                quote_spanned! {
-                    field.ty.span() =>
-                    // TODO: make this a function once const traits are stable
-                    #name: if <#pascal as #private_module::state::BuilderState>::SET {
-                        // SAFETY: If #pascal::SET is true, then we have already set #field_i
-                        unsafe { inner.#field_i.assume_init() }
-                    } else {
-                        ::core::default::Default::default()
-                    }
+                    #default
                 }
             }
         } else {

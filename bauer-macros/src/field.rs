@@ -7,7 +7,7 @@ use strum::{AsRefStr, IntoStaticStr, VariantArray};
 use syn::{
     Expr, ExprClosure, Field, Ident, LitStr, Pat, Token, Type, braced, parenthesized,
     parse::{Parse, ParseStream},
-    parse_quote,
+    parse_quote, parse_quote_spanned,
     spanned::Spanned,
     token::{Brace, Paren},
 };
@@ -131,6 +131,7 @@ enum Attribute {
     #[allow(clippy::enum_variant_names)]
     Attributes,
     Doc,
+    Collector,
 }
 
 impl Attribute {
@@ -583,16 +584,93 @@ impl TryFrom<syn::Pat> for Len {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // not relly important
+pub enum Collector {
+    FromIterator {
+        inner_ty: Type,
+    },
+    Custom {
+        collector: Expr,
+        inner_ty: Type,
+        field_ty: Type,
+    },
+}
+
+impl Collector {
+    fn collector_fn(&self) -> TokenStream {
+        match self {
+            Collector::FromIterator { inner_ty } => {
+                quote_spanned! { inner_ty.span()=>
+                    let collector = ::core::iter::FromIterator::from_iter;
+                }
+            }
+            Collector::Custom {
+                collector,
+                inner_ty,
+                field_ty,
+            } => {
+                quote_spanned! { collector.span()=>
+                    fn collector(iter: impl ::core::iter::ExactSizeIterator<Item = #inner_ty>) -> #field_ty {
+                        let collector = #collector;
+                        collector(iter)
+                    }
+                }
+            }
+        }
+    }
+
+    fn input_span(&self) -> Span {
+        match self {
+            Collector::FromIterator { inner_ty } => inner_ty.span(),
+            Collector::Custom { collector, .. } => collector.span(),
+        }
+    }
+
+    pub fn collect(&self, inner: Expr) -> TokenStream {
+        let collector_fn = self.collector_fn();
+        quote_spanned! {self.input_span()=>{
+            #collector_fn
+            collector(#inner)
+        }}
+    }
+}
+
+#[derive(Debug)]
 pub struct Repeat {
     pub inner_ty: Type,
     pub len: Len,
     pub array: bool,
+    pub collector: Collector,
+}
+
+#[derive(Debug)]
+pub enum DefaultAttr {
+    /// Default value is not specified, so use Default::default
+    Default { ident: Ident },
+    /// Use user-defined expression as default
+    Custom { ident: Ident, expr: Expr },
+}
+
+impl DefaultAttr {
+    pub fn to_value(&self, into_span: Option<Span>) -> Expr {
+        match (self, into_span) {
+            (DefaultAttr::Default { ident }, _) => parse_quote_spanned! {ident.span()=>
+                ::core::default::Default::default()
+            },
+            (DefaultAttr::Custom { ident: _, expr }, Some(span)) => parse_quote_spanned! {span=>
+                ::core::convert::Into::into(#expr)
+            },
+            (DefaultAttr::Custom { ident, expr }, None) => parse_quote_spanned! {ident.span()=>
+                #expr
+            },
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct Adapter {
-    pub args: Vec<(Ident, Type)>,
-    pub expr: Expr,
+    args: Vec<(Ident, Type)>,
+    expr: Expr,
 }
 
 impl Adapter {
@@ -642,10 +720,7 @@ impl Parse for Adapter {
 
 #[derive(Default, Debug)]
 pub struct FieldAttr {
-    /// Some(Some(expr)) -> default is expr
-    /// Some(None)       -> default is Default::default()
-    /// None             -> no default
-    pub default: Option<Option<Expr>>,
+    pub default: Option<DefaultAttr>,
     pub into: Option<Span>,
     pub repeat: Option<Repeat>,
     pub rename: Option<Ident>,
@@ -719,16 +794,19 @@ impl FieldAttr {
                         bail!(ident.span() => "`default` may not be used on `Option` fields");
                     }
 
-                    let value: Option<Expr> = if input.peek(Token![=]) {
+                    let value = if input.peek(Token![=]) {
                         let _: Token![=] = input.parse()?;
                         let s: LitStr = input.parse()?;
-                        Some(s.parse()?)
+                        DefaultAttr::Custom {
+                            ident,
+                            expr: s.parse()?,
+                        }
                     } else {
                         if builder_attr.konst {
                             bail!(ident.span() => "`default` may not be used without a value on const builders");
                         }
 
-                        None
+                        DefaultAttr::Default { ident }
                     };
 
                     out.default = Some(value)
@@ -761,7 +839,7 @@ impl FieldAttr {
                         bail!(ident.span() => "`repeat` may only be used for arrays on const builders");
                     }
 
-                    let (inner, len, array) = if input.peek(Token![=]) {
+                    let (inner_ty, len, array) = if input.peek(Token![=]) {
                         if let Type::Array(_) = &field.ty {
                             bail!(ident.span() => "`repeat` cannot be used with a type on arrays");
                         }
@@ -799,9 +877,10 @@ impl FieldAttr {
                     };
 
                     out.repeat = Some(Repeat {
-                        inner_ty: inner,
+                        inner_ty: inner_ty.clone(),
                         len,
                         array,
+                        collector: Collector::FromIterator { inner_ty },
                     });
                 }
                 Attribute::RepeatN => {
@@ -958,6 +1037,28 @@ impl FieldAttr {
                     if !attrs.is_empty() {
                         parse_docs(&attrs, ident.span(), &mut out.attributes)?;
                     }
+                }
+                Attribute::Collector => {
+                    let Some(repeat) = &mut out.repeat else {
+                        bail!(ident.span() => "`collector` may only be used with `repeat`");
+                    };
+
+                    if !matches!(repeat.collector, Collector::FromIterator { .. }) {
+                        bail!(ident.span() => "`collector` may only be used once");
+                    };
+
+                    if repeat.array {
+                        bail!(ident.span() => "`collector` may not be used on arrays");
+                    }
+
+                    let _: Token![=] = input.parse()?;
+                    let collector: Expr = input.parse()?;
+
+                    repeat.collector = Collector::Custom {
+                        collector,
+                        inner_ty: repeat.inner_ty.clone(),
+                        field_ty: field.ty.clone(),
+                    };
                 }
             }
 
