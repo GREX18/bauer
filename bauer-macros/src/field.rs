@@ -133,6 +133,7 @@ enum Attribute {
     Attributes,
     Doc,
     Collector,
+    Skip,
 }
 
 impl Attribute {
@@ -203,13 +204,42 @@ pub struct BuilderField {
     pub missing_err: Option<Ident>,
     pub wrapped_option: bool,
     pub idents: FieldIdents,
-    pub index: usize,
+    pub tuple_index: usize,
 }
 
 impl BuilderField {
+    pub fn should_skip(&self) -> bool {
+        self.attr.skip.is_set()
+    }
+
+    pub fn skipped_field_value(&self) -> Option<TokenStream> {
+        let value = match &self.attr.skip {
+            Skip::None => return None,
+            Skip::Default { ident } => quote_spanned! {ident.span()=>
+                ::core::default::Default::default()
+            },
+            Skip::Expr { ident, expr } => quote_spanned! {ident.span()=>
+                #expr
+            },
+        };
+
+        Some(quote! {{
+            #value
+        }})
+    }
+
+    pub fn wrapped_type(&self) -> Type {
+        if self.wrapped_option {
+            let ty = &self.ty;
+            parse_quote! { ::core::option::Option<#ty> }
+        } else {
+            self.ty.clone()
+        }
+    }
+
     pub fn tuple_index(&self) -> syn::Index {
         syn::Index {
-            index: self.index as _,
+            index: self.tuple_index as _,
             span: self.ident.span(),
         }
     }
@@ -288,7 +318,7 @@ impl BuilderField {
         value: &Field,
         builder_attr: &BuilderAttr,
         struct_name: &Ident,
-        index: usize,
+        tuple_index: &mut usize,
     ) -> syn::Result<Self> {
         let ident = value.ident.as_ref().expect("We only support named fields");
 
@@ -317,6 +347,12 @@ impl BuilderField {
                 .for_each(|a| attr.attributes.push(a))
         }
 
+        let this_tuple_index = *tuple_index;
+
+        if !attr.skip.is_set() {
+            *tuple_index += 1;
+        }
+
         Ok(BuilderField {
             ident: ident.clone(),
             ty: ty.clone(),
@@ -336,7 +372,7 @@ impl BuilderField {
             attr,
             wrapped_option,
             idents: FieldIdents::new(struct_name, ident),
-            index,
+            tuple_index: this_tuple_index,
         })
     }
 }
@@ -728,7 +764,35 @@ impl Parse for Adapter {
 }
 
 #[derive(Default, Debug)]
+pub enum Skip {
+    #[default]
+    None,
+    Default {
+        ident: Ident,
+    },
+    Expr {
+        ident: Ident,
+        expr: Expr,
+    },
+}
+
+impl Skip {
+    pub fn is_set(&self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    pub fn ident(&self) -> Option<&Ident> {
+        match self {
+            Skip::None => None,
+            Skip::Default { ident } => Some(ident),
+            Skip::Expr { ident, .. } => Some(ident),
+        }
+    }
+}
+
+#[derive(Default, Debug)]
 pub struct FieldAttr {
+    pub skip: Skip,
     pub default: Option<DefaultAttr>,
     pub into: Option<Span>,
     pub repeat: Option<Repeat>,
@@ -787,6 +851,7 @@ impl FieldAttr {
         let mut out = FieldAttr::default();
         let field_ident = field.ident.as_ref().unwrap();
 
+        let mut n_attr = 0;
         while input.peek(syn::Ident) {
             let ident: Ident = input.parse()?;
             match Attribute::parse(&ident)? {
@@ -1069,12 +1134,38 @@ impl FieldAttr {
                         field_ty: field.ty.clone(),
                     };
                 }
+                Attribute::Skip => {
+                    if out.skip.is_set() {
+                        bail!(ident.span() => "`skip` may only be used once");
+                    }
+
+                    out.skip = if input.peek(Token![=]) {
+                        let _: Token![=] = input.parse()?;
+                        Skip::Expr {
+                            ident,
+                            expr: input.parse()?,
+                        }
+                    } else {
+                        Skip::Default { ident }
+                    };
+                }
             }
+            n_attr += 1;
 
             if input.peek(Token![,]) {
                 let _: Token![,] = input.parse()?;
             } else {
                 break;
+            }
+        }
+
+        // validate the structure
+        if n_attr != 1 {
+            if let Some(ident) = out.skip.ident() {
+                bail!(
+                    ident.span() =>
+                    "`skip` may not be used with any other attributes"
+                );
             }
         }
 
