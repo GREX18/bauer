@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, mem::MaybeUninit};
 
-use crate::__private::sealed::Sealed;
+use crate::__private;
 
 // NOTE: These functions are not associated with the trait so that they may be const.
 
@@ -27,7 +27,7 @@ where
     }
 }
 
-pub trait BuilderState: Sealed {
+pub trait BuilderState: __private::sealed::Sealed {
     const SET: bool;
 }
 

@@ -1,91 +1,172 @@
 #![allow(dead_code)]
 
-// enusre that the same functionality is generated for all kinds (complex)
+fn sum(iter: impl Iterator<Item = u32>) -> u32 {
+    iter.sum()
+}
 
-use bauer::Builder;
+fn add_2(iter: impl Iterator<Item = u32>) -> Vec<u32> {
+    iter.map(|n| n + 2).collect()
+}
 
-macro_rules! define {
-    ($name: ident, $kind: literal) => {
-        #[derive(Debug, Builder, PartialEq)]
-        #[builder(kind = $kind)]
-        pub struct $name {
-            pub field_a: u32,
-            #[builder(default)]
-            pub field_b: u32,
-            #[builder(default = "42")]
-            pub field_c: u32,
-            #[builder(default, into)]
-            pub field_d: String,
-            #[builder(default = "\"hello\"", into)]
-            pub field_e: String,
-            #[builder(into)]
-            pub field_f: String,
-            #[builder(repeat)]
-            pub field_g: Vec<u32>,
-            #[builder(repeat, rename = "field_h_single")]
-            pub field_h: Vec<u32>,
-            #[builder(repeat, repeat_n = 1..=3)]
-            pub field_i: Vec<u32>,
-            #[builder(repeat = char)]
-            pub field_j: String,
+macro_rules! tests {
+    ($kind: literal in mod $module: ident $($unwrap: ident)?) => {
+        mod $module {
+            use bauer::Builder;
+
+            #[derive(Debug, Builder, PartialEq)]
+            #[builder(kind = $kind)]
+            struct Complex {
+                required: u32,
+                #[builder(default)]
+                default: u32,
+                #[builder(default = "42")]
+                default_value: u32,
+                #[builder(repeat)]
+                repeat: Vec<u32>,
+                #[builder(repeat = char)]
+                repeat_ty: String,
+                #[builder(repeat, repeat_n = 3)]
+                repeat_n_exact: Vec<u32>,
+                #[builder(repeat, repeat_n = 3..)]
+                repeat_n_at_least: Vec<u32>,
+                #[builder(repeat, repeat_n = ..5)]
+                repeat_n_at_most: Vec<u32>,
+                #[builder(repeat, repeat_n = 2..5)]
+                repeat_n_range_ex: Vec<u32>,
+                #[builder(repeat, repeat_n = 2..=5)]
+                repeat_n_range_in: Vec<u32>,
+                #[builder(repeat, collector = super::add_2)]
+                collector_map: Vec<u32>,
+                #[builder(repeat = u32, collector = super::sum)]
+                collector_sum: u32,
+                #[builder(into)]
+                into: String,
+                #[builder(into, repeat)]
+                into_repeat: Vec<String>,
+                #[builder(tuple)]
+                tuple: (u32, u32),
+                #[builder(tuple, into)]
+                tuple_into: (String, String),
+                #[builder(repeat, tuple)]
+                tuple_repeat: Vec<(u32, u32)>,
+                #[builder(repeat, tuple, into)]
+                tuple_repeat_into: Vec<(String, String)>,
+                #[builder(rename = "renamed")]
+                not_renamed: u32,
+            }
+
+            #[test]
+            fn minimal() {
+                let c: Complex = Complex::builder()
+                    .required(69)
+                    .repeat_n_exact(1)
+                    .repeat_n_exact(2)
+                    .repeat_n_exact(3)
+                    .repeat_n_at_least(1)
+                    .repeat_n_at_least(2)
+                    .repeat_n_at_least(3)
+                    .repeat_n_range_ex(1)
+                    .repeat_n_range_ex(2)
+                    .repeat_n_range_in(1)
+                    .repeat_n_range_in(2)
+                    .into("into")
+                    .tuple(8, 9)
+                    .tuple_into("a", "b")
+                    .renamed(4)
+                    .build()
+                    $(.$unwrap())?;
+
+                assert_eq!(c.required, 69);
+                assert_eq!(c.default, 0);
+                assert_eq!(c.default_value, 42);
+                assert_eq!(c.repeat, []);
+                assert_eq!(c.repeat_ty, "");
+                assert_eq!(c.repeat_n_exact, [1, 2, 3]);
+                assert_eq!(c.repeat_n_at_least, [1, 2, 3]);
+                assert_eq!(c.repeat_n_at_most, []);
+                assert_eq!(c.repeat_n_range_ex, [1, 2]);
+                assert_eq!(c.repeat_n_range_in, [1, 2]);
+                assert_eq!(c.collector_map, []);
+                assert_eq!(c.collector_sum, 0);
+                assert_eq!(c.into, "into");
+                assert_eq!(c.into_repeat, <[&str; 0]>::default());
+                assert_eq!(c.tuple, (8, 9));
+                assert_eq!(c.tuple_into, ("a".to_string(), "b".to_string()));
+                assert_eq!(c.tuple_repeat, []);
+                assert_eq!(c.tuple_repeat_into, []);
+                assert_eq!(c.not_renamed, 4);
+            }
+
+            #[test]
+            fn full() {
+                let c: Complex = Complex::builder()
+                    .required(69)
+                    .default(42)
+                    .default_value(1337)
+                    .repeat(1)
+                    .repeat(2)
+                    .repeat_ty('h')
+                    .repeat_ty('i')
+                    .repeat_n_exact(1)
+                    .repeat_n_exact(2)
+                    .repeat_n_exact(3)
+                    .repeat_n_at_least(1)
+                    .repeat_n_at_least(2)
+                    .repeat_n_at_least(3)
+                    .repeat_n_at_most(1)
+                    .repeat_n_at_most(2)
+                    .repeat_n_at_most(3)
+                    .repeat_n_range_ex(1)
+                    .repeat_n_range_ex(2)
+                    .repeat_n_range_in(1)
+                    .repeat_n_range_in(2)
+                    .collector_map(1)
+                    .collector_map(2)
+                    .collector_map(3)
+                    .collector_sum(1)
+                    .collector_sum(2)
+                    .collector_sum(3)
+                    .into("into")
+                    .into_repeat("a")
+                    .into_repeat("b")
+                    .into_repeat("c")
+                    .tuple(8, 9)
+                    .tuple_into("a", "b")
+                    .tuple_repeat(1, 2)
+                    .tuple_repeat(3, 4)
+                    .tuple_repeat_into("a", "b")
+                    .tuple_repeat_into("c", "d")
+                    .renamed(4)
+                    .build()
+                    $(.$unwrap())?;
+
+                assert_eq!(c.required, 69);
+                assert_eq!(c.default, 42);
+                assert_eq!(c.default_value, 1337);
+                assert_eq!(c.repeat, [1, 2]);
+                assert_eq!(c.repeat_ty, "hi");
+                assert_eq!(c.repeat_n_exact, [1, 2, 3]);
+                assert_eq!(c.repeat_n_at_least, [1, 2, 3]);
+                assert_eq!(c.repeat_n_at_most, [1, 2, 3]);
+                assert_eq!(c.repeat_n_range_ex, [1, 2]);
+                assert_eq!(c.repeat_n_range_in, [1, 2]);
+                assert_eq!(c.collector_map, [3, 4, 5]);
+                assert_eq!(c.collector_sum, 1 + 2 + 3);
+                assert_eq!(c.into, "into");
+                assert_eq!(c.into_repeat, ["a", "b", "c"]);
+                assert_eq!(c.tuple, (8, 9));
+                assert_eq!(c.tuple_into, ("a".to_string(), "b".to_string()));
+                assert_eq!(c.tuple_repeat, [(1, 2), (3, 4)]);
+                assert_eq!(c.tuple_repeat_into, [
+                    ("a".to_string(), "b".to_string()),
+                    ("c".to_string(), "d".to_string())
+                ]);
+                assert_eq!(c.not_renamed, 4);
+            }
         }
     };
 }
 
-macro_rules! populate {
-    ($name: ident) => {
-        $name::builder()
-            .field_a(5)
-            .field_f("world")
-            .field_g(0)
-            .field_g(1)
-            .field_h_single(2)
-            .field_h_single(3)
-            .field_i(4)
-            .field_i(5)
-            .field_i(6)
-            .field_j('h')
-            .field_j('i')
-    };
-}
-
-macro_rules! expected {
-    ($name: ident) => {
-        $name {
-            field_a: 5,
-            field_b: 0,
-            field_c: 42,
-            field_d: String::from(""),
-            field_e: String::from("hello"),
-            field_f: String::from("world"),
-            field_g: vec![0, 1],
-            field_h: vec![2, 3],
-            field_i: vec![4, 5, 6],
-            field_j: String::from("hi"),
-        }
-    };
-}
-
-#[test]
-fn complex_owned() {
-    define!(Foo, "owned");
-    let x = populate!(Foo).build().unwrap();
-    dbg!(&x);
-    assert_eq!(x, expected!(Foo));
-}
-
-#[test]
-fn complex_borrowed() {
-    define!(Foo, "borrowed");
-    let x = populate!(Foo).build().unwrap();
-    dbg!(&x);
-    assert_eq!(x, expected!(Foo));
-}
-
-#[test]
-fn complex_type_state() {
-    define!(Foo, "type-state");
-    let x = populate!(Foo).build();
-    dbg!(&x);
-    assert_eq!(x, expected!(Foo));
-}
+tests!("borrowed" in mod borrowed unwrap);
+tests!("owned" in mod owned unwrap);
+tests!("type-state" in mod type_state);
