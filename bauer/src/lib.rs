@@ -67,21 +67,21 @@
 //! | [`visibility`]                               | Change the visibility of the created builder (defaults to the same visibility as the struct)                | `prefix = "set_"` or `suffix = "_field"`     |
 //! | [`crate`]                                    | Override the name of the crate when expanding macros (defaults to `bauer`)                                  | `prefix = "set_"` or `suffix = "_field"`     |
 //! | [`attribute`/`attributes`]                   | Set attribute(s) on the generated builder struct                                                            | `attribute(#[foo])`                          |
-//! | [`build_fn_attribute`/`build_fn_attributes`] | Set attribute(s) on the generated `.build()` function                                                       | `build_fn_attribute(#[foo])`                 |
 //! | [`doc`/`docs`]                               | Set documentation items on the generated builder struct                                                     | `doc(<doc strings>)`                         |
-//! | [`build_fn_doc`/`build_fn_docs`]             | Set documentation items on the generated `.build()` function                                                | `build_fn_doc(<doc strings>)`                |
-//! | [`force_result`]                             | Force the `.build()` function to _always_ produce a result, even when the build is infallible               | `force_result`                               |
+//! | [`build_fn`]                                 | Set details about the build function (`attributes`, `doc`, `rename`)                                        | `build_fn(...)`                              |
+//! | [`builder_fn`]                               | Set details about the builder function added to the struct (`attributes`, `doc`, `rename`)                  | `builder_fn(...)`                            |
+//! | [`error`]                                    | Set details about the generated error enum (`attributes`, `doc`, `rename`, `force`)                         | `error(...)`                                 |
 //!
 //! [`kind`]: Builder#kind
 //! [`const`]: Builder#const
 //! [`prefix`/`suffix`]: Builder#prefixsuffix
 //! [`visibility`]: Builder#visibility
 //! [`crate`]: Builder#crate
-//! [`attribute`/`attributes`]: Builder#attributes--build_fn_attributes
-//! [`build_fn_attribute`/`build_fn_attributes`]: Builder#attributes--build_fn_attributes
-//! [`doc`/`docs`]: Builder#doc--build_fn_doc
-//! [`build_fn_doc`/`build_fn_docs`]: Builder#doc--build_fn_doc
-//! [`force_result`]: Builder#force_result
+//! [`attribute`/`attributes`]: Builder#attributes
+//! [`doc`/`docs`]: Builder#doc
+//! [`build_fn`]: Builder#build_fn
+//! [`builder_fn`]: Builder#builder_fn
+//! [`error`]: Builder#error
 //!
 //! ## Field Attributes
 //!
@@ -114,8 +114,8 @@
 //! [`adapter`]: Builder#adapter
 //! [`rename`]: Builder#rename
 //! [`skip_prefix`/`skip_suffix`]: Builder#skip_prefixskip_suffix
-//! [field_attr]: Builder#attributes
-//! [field_doc]: Builder#doc
+//! [field_attr]: Builder#attributes-1
+//! [field_doc]: Builder#doc-1
 
 /// The main macro
 ///
@@ -149,13 +149,13 @@
 /// ## Type-State Builder
 ///
 /// If the builder kind is `"type-state"`, then all errors will be presented as type-errors at
-/// compile-time and the `.build()` function will not return a [`Result`]. (unless [`force_result`]
-/// is set).
+/// compile-time and the `.build()` function will not return a [`Result`]. (unless
+/// [`error`]`(force)` is set).
 ///
 /// ## Forcing Results
 ///
 /// If you wish to force the generated `.build()` function to always return a [`Result`], add the
-/// [`force_result`] attribute to the builder.
+/// [`error`]`(force)` attribute to the builder.
 ///
 /// # Builder Attributes
 ///
@@ -311,14 +311,10 @@
 /// }
 /// ```
 ///
-/// ## **`attributes`** / **`build_fn_attributes`**
+/// ## **`attributes`**
 ///
-/// Any attributes specified in `attributes` will be added to the generated builder struct.
-/// Similarly, any attributes specified in `build_fn_attributes` will be added to generated
-/// `.build()` function.
-///
-/// You may also use `attribute` instead of `attributes` and `build_fn_attribute` instead of
-/// `build_fn_attributes`.
+/// Any attributes specified in `attributes` will be added to the generated builder for this field.
+/// You may also use `attribute` instead of `attributes`.
 ///
 /// The contents may be wrapped with either `()` or `{}` and attributes may optionally be separated
 /// using commas.
@@ -332,14 +328,13 @@
 ///         #[my_attribute]
 ///         #[my_attribute2]
 ///     ),
-///     build_fn_attributes(#[my_attribute], #[my_attribute2]),
 /// )]
 /// pub struct Foo {
 ///     field: u32,
 /// }
 /// ```
 ///
-/// ## **`doc`** / **`build_fn_doc`**
+/// ## **`doc`**
 ///
 /// Add documentation to the generated builder struct or the generated `.build()` function
 ///
@@ -356,32 +351,131 @@
 ///     doc {
 ///         /// Some documentation for my field
 ///     },
-///     build_fn_doc {
-///         /// Some documentation for my field
-///     },
 /// )]
 /// pub struct Foo {
 ///     field: u32,
 /// }
 /// ```
 ///
-/// ## **`force_result`**
+/// ## **`build_fn`**
 ///
-/// Force the `.build()` function to return a result.
+/// Specify details surrounding the generated `.build()` function on the builder.  There are a few
+/// attributes that may be specified here:
+///
+/// - `attributes` - Specify attributes to be applied to the build function (see
+///   [`attributes`](#attributes))
+/// - `doc` - Add documentation to the generated build function (see [`doc`](#doc))
+/// - `rename = <name>` - Rename the build function from the default of `build`
+///
+/// The contents may be wrapped with either `()` or `{}` and attributes may optionally be separated
+/// using commas.
 ///
 /// ```
 /// # use bauer_macros::Builder;
 /// # use attribute::{my_attribute, my_attribute2};
 /// #[derive(Builder)]
-/// #[builder(force_result)]
+/// #[builder(
+///     build_fn {
+///         attributes {
+///             #[my_attribute]
+///             #[my_attribute2]
+///         },
+///         doc {
+///             /// Some documentation about the build function
+///         },
+///         rename = "finish",
+///     },
+/// )]
 /// pub struct Foo {
-///     #[builder(default)]
 ///     field: u32,
 /// }
 ///
-/// Foo::builder()
-///     .build()
-///     .unwrap(); // This unwrap will never fail
+/// let foo: Foo = Foo::builder()
+///     .field(3)
+///     .finish()?;
+/// # Ok::<_, Box<dyn std::error::Error>>(())
+/// ```
+///
+/// ## **`builder_fn`**
+///
+/// Specify details surrounding the generated `.builder()` function on the struct.  There are a few
+/// attributes that may be specified here:
+///
+/// - `attributes` - Specify attributes to be applied to the build function (see
+///   [`attributes`](#attributes))
+/// - `doc` - Add documentation to the generated build function (see [`doc`](#doc))
+/// - `rename = <name>` - Rename the build function from the default of `build`
+///
+/// The contents may be wrapped with either `()` or `{}` and attributes may optionally be separated
+/// using commas.
+///
+/// ```
+/// # use bauer_macros::Builder;
+/// # use attribute::{my_attribute, my_attribute2};
+/// #[derive(Builder)]
+/// #[builder(
+///     builder_fn {
+///         attributes {
+///             #[my_attribute]
+///             #[my_attribute2]
+///         },
+///         doc {
+///             /// Some documentation about the builder function
+///         },
+///         rename = "renamed_function",
+///     },
+/// )]
+/// pub struct Foo {
+///     field: u32,
+/// }
+///
+/// let foo: Foo = Foo::renamed_function()
+///     .field(3)
+///     .build()?;
+/// # Ok::<_, Box<dyn std::error::Error>>(())
+/// ```
+///
+/// ## **`error`**
+///
+/// Specify details surrounding the generated error type for the builder.  There are a few
+/// attributes that may be specified here:
+///
+/// - `attributes` - Specify attributes to be applied to error enum (see
+///   [`attributes`](#attributes)) _[This field is ignored on Type-State builders]_
+/// - `doc` - Add documentation to the generated error enum (see [`doc`](#doc)) _[This field is ignored on Type-State builders]_
+/// - `rename = <name>` - Rename the error enum from the default `{struct}BuildError` _[This field is ignored on Type-State builders]_
+/// - `force` - Force the builder to return an error.  This is the error enum for Owned and
+///   Borrowed builders, and [`Infallible`] on Type-State.
+///
+/// The contents may be wrapped with either `()` or `{}` and attributes may optionally be separated
+/// using commas.
+///
+/// [`Infallible`]: std::convert::Infallible
+///
+/// ```
+/// # use bauer_macros::Builder;
+/// # use attribute::{my_attribute, my_attribute2};
+/// #[derive(Builder)]
+/// #[builder(
+///     error {
+///         attributes {
+///             #[my_attribute]
+///             #[my_attribute2]
+///         },
+///         doc {
+///             /// Some documentation about the build function
+///         },
+///         rename = "FooBuildFailure",
+///     },
+/// )]
+/// pub struct Foo {
+///     field: u32,
+/// }
+///
+/// let result: Result<Foo, FooBuildFailure> = Foo::builder()
+///     .field(3)
+///     .build();
+/// # let _ = result;
 /// ```
 ///
 /// # Fields Attributes
@@ -725,9 +819,9 @@
 /// }
 /// ```
 ///
-/// [`force_result`]: #force_result
 /// [`prefix`]:       #prefixsuffix
 /// [`suffix`]:       #prefixsuffix
+/// [`error`]:        #error
 ///
 /// [`collector`]:    #collector
 /// [`repeat`]:       #repeat

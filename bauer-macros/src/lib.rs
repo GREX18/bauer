@@ -4,20 +4,38 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
-    DeriveInput, Pat, TypePath, parse::ParseStream, parse_macro_input, parse_quote,
-    parse_quote_spanned, spanned::Spanned,
+    DeriveInput, Ident, Pat, parse::ParseStream, parse_macro_input, parse_quote_spanned,
+    spanned::Spanned,
 };
 
 use crate::{
-    builder::{BuilderAttr, Kind},
-    field::{BuilderField, Len, Repeat},
+    attr::builder::{BuilderAttr, Kind},
+    attr::field::{BuilderField, Len, Repeat},
     util::parallel_assign,
 };
 
-mod builder;
-mod field;
+mod attr;
 mod type_state;
 mod util;
+
+fn builder_fn(input: &DeriveInput, builder_attr: &BuilderAttr, builder: &Ident) -> TokenStream2 {
+    let ident = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let konst = builder_attr.konst_kw();
+    let builder_vis = &builder_attr.vis;
+
+    let name = &builder_attr.builder_fn.name;
+    let attributes = &builder_attr.builder_fn.attributes;
+
+    quote! {
+        impl #impl_generics #ident #ty_generics #where_clause {
+            #(#attributes)*
+            #builder_vis #konst fn #name() -> #builder #ty_generics {
+                #builder::new()
+            }
+        }
+    }
+}
 
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn builder(input: TokenStream) -> TokenStream {
@@ -26,7 +44,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
     let vis = &input.vis;
 
     let attr = input.attrs.iter().find(|a| a.path().is_ident("builder"));
-    let attr: BuilderAttr = if let Some(attr) = attr {
+    let builder_attr: BuilderAttr = if let Some(attr) = attr {
         match attr.parse_args_with(|ps: ParseStream| BuilderAttr::parse(ps, vis.clone())) {
             Ok(a) => a,
             Err(e) => return e.to_compile_error().into(),
@@ -49,11 +67,11 @@ pub fn builder(input: TokenStream) -> TokenStream {
         }
     };
 
-    let self_param = attr.self_param();
-    let builder_vis = &attr.vis;
+    let self_param = builder_attr.self_param();
+    let builder_vis = &builder_attr.vis;
 
     let builder = format_ident!("{}Builder", ident);
-    let build_err = format_ident!("{}BuildError", ident);
+    let build_err = builder_attr.error.name(ident);
     let inner = format_ident!("__unsafe_builder_content");
 
     let mut tuple_index = 0;
@@ -61,7 +79,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
         syn::Fields::Named(ref fields_named) => match fields_named
             .named
             .iter()
-            .map(|f| BuilderField::parse(f, &attr, ident, &mut tuple_index))
+            .map(|f| BuilderField::parse(f, &builder_attr, ident, &mut tuple_index))
             .collect::<Result<_, _>>()
         {
             Ok(v) => v,
@@ -79,10 +97,10 @@ pub fn builder(input: TokenStream) -> TokenStream {
         }
     };
 
-    let private_module = attr.private_module();
+    let private_module = builder_attr.private_module();
 
-    if attr.kind == Kind::TypeState {
-        return type_state::type_state_builder(&attr, &input, fields).into();
+    if builder_attr.kind == Kind::TypeState {
+        return type_state::type_state_builder(&builder_attr, &input, fields).into();
     }
 
     let (field_types, init): (Vec<_>, Vec<_>) = fields
@@ -123,7 +141,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
     let functions: TokenStream2 = fields
         .iter()
         .filter(|f| !f.should_skip())
-        .map(|f| f.function(&attr, &inner))
+        .map(|f| f.function(&builder_attr, &inner))
         .collect();
 
     let (build_err_variants, build_err_messages): (Vec<_>, Vec<_>) = fields
@@ -175,7 +193,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
                     }}
                 } else {
                     assert!(!rep.array);
-                    assert!(!attr.konst);
+                    assert!(!builder_attr.konst);
 
                     collector.collect(parse_quote_spanned! {inner_ty.span()=>
                         inner.#field_i.drain(..)
@@ -200,7 +218,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
                 }
             } else {
                 assert!(!rep.array);
-                assert!(!attr.konst);
+                assert!(!builder_attr.konst);
                 collector.collect(parse_quote_spanned! {inner_ty.span()=>
                     inner.#field_i.drain(..)
                 })
@@ -263,27 +281,22 @@ pub fn builder(input: TokenStream) -> TokenStream {
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
-    let konst = attr.konst_kw();
-    let builder_fn_attributes = &attr.build_fn_attributes;
+    let konst = builder_attr.konst_kw();
 
-    let build_err: TypePath = if build_err_variants.is_empty() && attr.force_result {
-        parse_quote! { ::core::convert::Infallible }
+    let (ret_ty, ret_val) = if build_err_variants.is_empty() && !builder_attr.error.force {
+        (quote! { #ident #ty_generics }, quote! { ret })
     } else {
-        parse_quote! { #build_err }
-    };
-
-    let (ret_ty, ret_val) = if !build_err_variants.is_empty() || attr.force_result {
         (
             quote! { ::core::result::Result<#ident #ty_generics, #build_err> },
             quote! { Ok(ret) },
         )
-    } else {
-        (quote! { #ident #ty_generics }, quote! { ret })
     };
 
+    let build_fn_attributes = &builder_attr.build_fn.attributes;
+    let build_fn_name = &builder_attr.build_fn.name;
     let build_fn = quote! {
-        #(#builder_fn_attributes)*
-        #builder_vis #konst fn build(#self_param) -> #ret_ty {
+        #(#build_fn_attributes)*
+        #builder_vis #konst fn #build_fn_name(#self_param) -> #ret_ty {
             #[allow(deprecated)] // #inner is set to deprecated
             let ret = {
                 #set_not_skipped_fields
@@ -297,10 +310,12 @@ pub fn builder(input: TokenStream) -> TokenStream {
         }
     };
 
-    let build_err_enum = if build_err_variants.is_empty() {
+    let build_err_enum = if build_err_variants.is_empty() && !builder_attr.error.force {
         quote! {}
     } else {
+        let attributes = &builder_attr.error.attributes;
         quote! {
+            #(#attributes)*
             #[derive(::std::fmt::Debug, ::std::cmp::PartialEq, ::std::cmp::Eq)]
             #[allow(enum_variant_names)]
             #builder_vis enum #build_err {
@@ -310,7 +325,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
             impl ::core::fmt::Display for #build_err {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                     use ::core::fmt::Write;
-                    match self {
+                    match *self {
                         #(#build_err_messages),*
                     }
                 }
@@ -320,38 +335,32 @@ pub fn builder(input: TokenStream) -> TokenStream {
         }
     };
 
-    let into_impl = if build_err_variants.is_empty() {
-        let value = if attr.force_result {
-            quote! {
-                let Ok(built) = builder.build();
-                built
-            }
-        } else {
-            quote! { builder.build() }
-        };
-
+    let into_impl = if build_err_variants.is_empty() && !builder_attr.error.force {
         quote! {
             impl #impl_generics ::core::convert::From<#builder #ty_generics> for #ident #ty_generics #where_clause {
                 fn from(mut builder: #builder #ty_generics) -> Self {
-                    #value
+                    builder.#build_fn_name()
                 }
             }
         }
     } else {
         quote! {
+            #[allow(clippy::infallible_try_from)]
             impl #impl_generics ::core::convert::TryFrom<#builder #ty_generics> for #ident #ty_generics #where_clause {
                 type Error = #build_err;
 
                 fn try_from(mut builder: #builder #ty_generics) -> Result<Self, Self::Error> {
-                    builder.build()
+                    builder.#build_fn_name()
                 }
             }
         }
     };
 
-    let builder_attributes = &attr.attributes;
+    let builder_attributes = &builder_attr.attributes;
 
-    let assert_crate = attr.assert_crate();
+    let builder_fn = builder_fn(&input, &builder_attr, &builder);
+
+    let assert_crate = builder_attr.assert_crate();
     quote! {
         #assert_crate
 
@@ -372,7 +381,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
         }
 
         impl #impl_generics #builder #ty_generics #where_clause {
-            pub #konst fn new() -> Self {
+            #konst fn new() -> Self {
                 Self {
                     #inner: (#(#init,)*),
                 }
@@ -385,11 +394,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl #impl_generics #ident #ty_generics #where_clause {
-            #builder_vis #konst fn builder() -> #builder #ty_generics {
-                #builder::new()
-            }
-        }
+        #builder_fn
 
         #into_impl
     }

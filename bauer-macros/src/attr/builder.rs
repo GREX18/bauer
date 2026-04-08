@@ -4,17 +4,18 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use strum::{AsRefStr, IntoStaticStr, VariantArray};
 use syn::{
-    Ident, ItemConst, LitStr, Token, Visibility, braced,
+    Ident, ItemConst, LitStr, Token, Visibility,
     ext::IdentExt,
-    parenthesized,
     parse::{Parse, ParseStream},
     parse_quote,
-    token::{Brace, Paren},
 };
 
-use crate::util::{
-    OptionalToken,
-    parse::{parse_attributes, parse_docs},
+use crate::{
+    attr::{build_fn::BuildFnAttr, error::ErrorAttr},
+    util::{
+        OptionalToken,
+        parse::{parethesised_or_braced, parse_attributes, parse_docs},
+    },
 };
 
 macro_rules! bail {
@@ -71,11 +72,10 @@ enum Attribute {
     Const,
     #[allow(clippy::enum_variant_names)]
     Attributes,
-    #[allow(clippy::enum_variant_names)]
-    BuildFnAttributes,
     Doc,
-    BuildFnDoc,
-    ForceResult,
+    BuildFn,
+    BuilderFn,
+    Error,
 }
 
 impl Attribute {
@@ -86,7 +86,6 @@ impl Attribute {
 
         match self {
             Self::Attributes => ident == "attribute",
-            Self::BuildFnAttributes => ident == "build_fn_attribute",
             _ => false,
         }
     }
@@ -122,8 +121,9 @@ pub struct BuilderAttr {
     pub krate: Ident,
     pub konst: bool,
     pub attributes: Vec<syn::Attribute>,
-    pub build_fn_attributes: Vec<syn::Attribute>,
-    pub force_result: bool,
+    pub build_fn: BuildFnAttr,
+    pub builder_fn: BuildFnAttr,
+    pub error: ErrorAttr,
 }
 
 impl BuilderAttr {
@@ -136,8 +136,9 @@ impl BuilderAttr {
             krate: format_ident!("bauer"),
             konst: false,
             attributes: Default::default(),
-            build_fn_attributes: Default::default(),
-            force_result: false,
+            build_fn: BuildFnAttr::default_build(),
+            builder_fn: BuildFnAttr::default_builder(),
+            error: Default::default(),
         }
     }
 
@@ -190,6 +191,9 @@ impl BuilderAttr {
         let mut suffix_set = false;
         let mut vis_set = false;
         let mut crate_set = false;
+        let mut build_fn_set = false;
+        let mut builder_fn_set = false;
+        let mut error_set = false;
 
         while input.peek(Ident::peek_any) {
             let ident = Ident::parse_any(input)?;
@@ -247,75 +251,48 @@ impl BuilderAttr {
                     out.konst = true;
                 }
                 Attribute::Attributes => {
-                    let attrs;
-
-                    let la = input.lookahead1();
-                    if la.peek(Paren) {
-                        parenthesized!(attrs in input);
-                    } else if la.peek(Brace) {
-                        braced!(attrs in input);
-                    } else {
-                        return Err(la.error());
-                    }
+                    let attrs = parethesised_or_braced(input)?;
 
                     if !attrs.is_empty() {
                         parse_attributes(&attrs, &mut out.attributes)?;
                     }
                 }
-                Attribute::BuildFnAttributes => {
-                    let attrs;
-
-                    let la = input.lookahead1();
-                    if la.peek(Paren) {
-                        parenthesized!(attrs in input);
-                    } else if la.peek(Brace) {
-                        braced!(attrs in input);
-                    } else {
-                        return Err(la.error());
-                    }
-
-                    if !attrs.is_empty() {
-                        parse_attributes(&attrs, &mut out.build_fn_attributes)?;
-                    }
-                }
                 Attribute::Doc => {
-                    let attrs;
-
-                    let la = input.lookahead1();
-                    if la.peek(Paren) {
-                        parenthesized!(attrs in input);
-                    } else if la.peek(Brace) {
-                        braced!(attrs in input);
-                    } else {
-                        return Err(la.error());
-                    }
+                    let attrs = parethesised_or_braced(input)?;
 
                     if !attrs.is_empty() {
                         parse_docs(&attrs, ident.span(), &mut out.attributes)?;
                     }
                 }
-                Attribute::BuildFnDoc => {
-                    let attrs;
-
-                    let la = input.lookahead1();
-                    if la.peek(Paren) {
-                        parenthesized!(attrs in input);
-                    } else if la.peek(Brace) {
-                        braced!(attrs in input);
-                    } else {
-                        return Err(la.error());
+                Attribute::BuildFn => {
+                    if build_fn_set {
+                        bail!(ident.span() => "`build_fn` may only be used once");
                     }
 
-                    if !attrs.is_empty() {
-                        parse_docs(&attrs, ident.span(), &mut out.build_fn_attributes)?;
-                    }
+                    let build_fn = parethesised_or_braced(input)?;
+                    out.build_fn.parse(&build_fn)?;
+
+                    build_fn_set = true;
                 }
-                Attribute::ForceResult => {
-                    if out.force_result {
-                        bail!(ident.span() => "`force_result` may only be used once");
+                Attribute::BuilderFn => {
+                    if builder_fn_set {
+                        bail!(ident.span() => "`builder_fn` may only be used once");
                     }
 
-                    out.force_result = true;
+                    let builder_fn = parethesised_or_braced(input)?;
+                    out.builder_fn.parse(&builder_fn)?;
+
+                    builder_fn_set = true;
+                }
+                Attribute::Error => {
+                    if error_set {
+                        bail!(ident.span() => "`build_fn` may only be used once");
+                    }
+
+                    let error = parethesised_or_braced(input)?;
+                    out.error = ErrorAttr::parse(&error)?;
+
+                    error_set = true;
                 }
             }
 
