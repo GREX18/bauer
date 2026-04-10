@@ -37,20 +37,22 @@ fn builder_fn(input: &DeriveInput, builder_attr: &BuilderAttr, builder: &Ident) 
     }
 }
 
+fn parse_build_attr(input: &DeriveInput) -> syn::Result<BuilderAttr> {
+    let mut out = BuilderAttr::new(input.vis.clone());
+    for attr in input.attrs.iter().filter(|a| a.path().is_ident("builder")) {
+        attr.parse_args_with(|ps: ParseStream| out.parse(ps))?;
+    }
+    Ok(out)
+}
+
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn builder(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let ident = &input.ident;
-    let vis = &input.vis;
 
-    let attr = input.attrs.iter().find(|a| a.path().is_ident("builder"));
-    let builder_attr: BuilderAttr = if let Some(attr) = attr {
-        match attr.parse_args_with(|ps: ParseStream| BuilderAttr::parse(ps, vis.clone())) {
-            Ok(a) => a,
-            Err(e) => return e.to_compile_error().into(),
-        }
-    } else {
-        BuilderAttr::new(vis.clone())
+    let builder_attr: BuilderAttr = match parse_build_attr(&input) {
+        Ok(a) => a,
+        Err(e) => return e.to_compile_error().into(),
     };
 
     let data_struct = match input.data {

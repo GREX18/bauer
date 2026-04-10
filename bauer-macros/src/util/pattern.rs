@@ -1,7 +1,11 @@
+use proc_macro2::Group;
 use proc_macro2::TokenStream;
+use proc_macro2::TokenTree;
 use quote::ToTokens;
+use quote::TokenStreamExt;
 use syn::Expr;
 use syn::GenericArgument;
+use syn::LitInt;
 use syn::PathArguments;
 use syn::ReturnType;
 use syn::Type;
@@ -158,7 +162,7 @@ fn match_trait_object(
         match bound {
             TypeParamBound::Trait(trait_) => {
                 out.push(t.bounds.to_token_stream());
-                if trait_.path.is_ident("_T") {
+                if trait_.path.is_ident("__") {
                     return true;
                 }
             }
@@ -218,9 +222,51 @@ pub fn pattern_match_type(pattern: &Type, ty: &Type, out: &mut Vec<TokenStream>)
     }
 }
 
+pub fn replace(matches: &[TokenStream], stream: TokenStream) -> TokenStream {
+    let mut out = TokenStream::new();
+    let mut stream = stream.into_iter().peekable();
+    while let Some(t) = stream.next() {
+        let t = match t {
+            TokenTree::Group(g) => {
+                let stream = replace(matches, g.stream());
+                let mut t = Group::new(g.delimiter(), stream);
+                t.set_span(g.span());
+
+                TokenTree::Group(t)
+            }
+            TokenTree::Ident(_) => t,
+            TokenTree::Punct(ref p) if p.as_char() == '#' => {
+                if let Some(l) = stream.next_if(|t| {
+                    matches!(t, TokenTree::Literal(l) if {
+                        // This hurts...
+                        // TODO: figure out a better way to match integer literals
+                        syn::parse2::<LitInt>(l.into_token_stream()).is_ok()
+                    })
+                }) {
+                    let TokenTree::Literal(l) = l else {
+                        unreachable!("Checked Above");
+                    };
+                    let n = syn::parse2::<LitInt>(l.into_token_stream()).expect("checked above");
+                    matches[n.base10_parse::<usize>().unwrap()].to_tokens(&mut out);
+                    continue;
+                } else {
+                    t
+                }
+            }
+            TokenTree::Punct(_) => t,
+            TokenTree::Literal(_) => t,
+        };
+        out.append(t);
+    }
+    out
+}
+
 #[cfg(test)]
 mod test {
+    use quote::quote;
     use syn::{Type, parse_quote};
+
+    use crate::util::pattern::replace;
 
     use super::pattern_match_type;
 
@@ -454,12 +500,12 @@ mod test {
     #[test]
     fn trait_object() {
         match_pattern! {
-            dyn _T =>
+            dyn __ =>
                 dyn Foo       => Foo;
                 dyn Foo + Bar => Foo + Bar;
         }
         match_pattern! {
-            dyn _T => !
+            dyn __ => !
                 [u32; 3],
                 fn(u32, u8) -> String,
                 my_macro!(12),
@@ -498,7 +544,7 @@ mod test {
                 (u8, u32) => u8, u32;
         }
         match_pattern! {
-            dyn _T => !
+            dyn __ => !
                 [u32; 3],
                 fn(u32, u8) -> String,
                 my_macro!(12),
@@ -507,5 +553,44 @@ mod test {
                 &dyn Foo,
                 (u8, u32, String),
         };
+    }
+
+    macro_rules! test_replace {
+        ([$({$($matches: tt)*}),*$(,)?] + { $($tt: tt)* } => $($out: tt)*) => {
+            eprintln!("{} + {} => {}", stringify!([$({$($matches)*}),*]), stringify!($($tt)*), stringify!($($out)*));
+            let x = replace(&[$(quote! { $($matches)* }),*], quote! { $($tt)* });
+            assert_eq!(x.to_string(), quote! { $($out)* }.to_string());
+        };
+    }
+
+    #[test]
+    fn replace_() {
+        test_replace! {
+            [{ foo }] + { Foo<#0> } => Foo<foo>
+        };
+        test_replace! {
+            [{ foo }, { bar }] + { Foo<#0, #1> } => Foo<foo, bar>
+        };
+    }
+
+    #[test]
+    fn roundtrip() {
+        let mut out = Vec::new();
+        let matches = pattern_match_type(
+            &parse_quote! { HashMap<_, _> },
+            &parse_quote! { HashMap<String, Value> },
+            &mut out,
+        );
+        assert!(matches);
+
+        let out = replace(
+            &out,
+            quote! { repeat = (#0, #1), adapter = |name: impl Into<#0>, value: Value| (name.into(), value) },
+        );
+        dbg!(out.to_string());
+        assert_eq!(
+            out.to_string(),
+            quote! {  repeat = (String, Value), adapter = |name: impl Into<String>, value: Value| (name.into(), value)  }.to_string()
+        );
     }
 }
