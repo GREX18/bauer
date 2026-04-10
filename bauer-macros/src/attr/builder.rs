@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use strum::{AsRefStr, IntoStaticStr, VariantArray};
 use syn::{
-    Ident, ItemConst, LitStr, Token, Visibility,
+    Ident, ItemConst, LitStr, Token, Type, Visibility,
     ext::IdentExt,
     parse::{Parse, ParseStream},
     parse_quote,
@@ -61,6 +61,12 @@ impl Parse for Kind {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct On {
+    pattern: Type,
+    replacement: TokenStream,
+}
+
 #[derive(Clone, Copy, VariantArray, IntoStaticStr, AsRefStr, Debug, PartialEq, Eq)]
 #[strum(serialize_all = "snake_case")]
 enum Attribute {
@@ -76,6 +82,7 @@ enum Attribute {
     BuildFn,
     BuilderFn,
     Error,
+    On,
 }
 
 impl Attribute {
@@ -124,6 +131,7 @@ pub struct BuilderAttr {
     pub build_fn: BuildFnAttr,
     pub builder_fn: BuildFnAttr,
     pub error: ErrorAttr,
+    pub on: Vec<On>,
 }
 
 impl BuilderAttr {
@@ -139,6 +147,7 @@ impl BuilderAttr {
             build_fn: BuildFnAttr::default_build(),
             builder_fn: BuildFnAttr::default_builder(),
             error: Default::default(),
+            on: Default::default(),
         }
     }
 

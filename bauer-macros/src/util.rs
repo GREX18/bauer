@@ -7,6 +7,7 @@ use syn::{DeriveInput, Ident};
 use crate::BuilderField;
 
 pub mod parse;
+pub mod pattern;
 
 pub(crate) struct Replace<I: Iterator + Sized> {
     iter: std::iter::Enumerate<I>,
