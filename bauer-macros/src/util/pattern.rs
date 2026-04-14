@@ -3,6 +3,7 @@ use proc_macro2::TokenStream;
 use proc_macro2::TokenTree;
 use quote::ToTokens;
 use quote::TokenStreamExt;
+use quote::quote;
 use syn::Expr;
 use syn::GenericArgument;
 use syn::LitInt;
@@ -222,13 +223,13 @@ pub fn pattern_match_type(pattern: &Type, ty: &Type, out: &mut Vec<TokenStream>)
     }
 }
 
-pub fn replace(matches: &[TokenStream], stream: TokenStream) -> TokenStream {
+pub fn replace(matches: &[TokenStream], stream: TokenStream) -> syn::Result<TokenStream> {
     let mut out = TokenStream::new();
     let mut stream = stream.into_iter().peekable();
     while let Some(t) = stream.next() {
         let t = match t {
             TokenTree::Group(g) => {
-                let stream = replace(matches, g.stream());
+                let stream = replace(matches, g.stream())?;
                 let mut t = Group::new(g.delimiter(), stream);
                 t.set_span(g.span());
 
@@ -236,19 +237,34 @@ pub fn replace(matches: &[TokenStream], stream: TokenStream) -> TokenStream {
             }
             TokenTree::Ident(_) => t,
             TokenTree::Punct(ref p) if p.as_char() == '#' => {
-                if let Some(l) = stream.next_if(|t| {
-                    matches!(t, TokenTree::Literal(l) if {
-                        // This hurts...
-                        // TODO: figure out a better way to match integer literals
-                        syn::parse2::<LitInt>(l.into_token_stream()).is_ok()
-                    })
-                }) {
-                    let TokenTree::Literal(l) = l else {
-                        unreachable!("Checked Above");
-                    };
-                    let n = syn::parse2::<LitInt>(l.into_token_stream()).expect("checked above");
-                    matches[n.base10_parse::<usize>().unwrap()].to_tokens(&mut out);
-                    continue;
+                if let Some(peeked) = stream.peek() {
+                    match peeked {
+                        TokenTree::Literal(_) => {
+                            let Some(TokenTree::Literal(l)) = stream.next() else {
+                                unreachable!("peek was some and literal matched");
+                            };
+
+                            let int = syn::parse2::<LitInt>(l.to_token_stream())?;
+                            let n = int.base10_parse::<usize>()?;
+
+                            if let Some(m) = matches.get(n) {
+                                m.to_tokens(&mut out);
+                            } else {
+                                let err = format!(
+                                    "index out of bounds: there were {0} matches but the index is {1}, if you intended a literal '#{1}', use '# #{1}'",
+                                    matches.len(),
+                                    n,
+                                );
+                                return Err(syn::Error::new_spanned(quote! { #int #p }, err));
+                            }
+                            continue;
+                        }
+                        TokenTree::Punct(p) if p.as_char() == '#' => {
+                            // munch if we have a double `#`
+                            stream.next().expect("peek is some")
+                        }
+                        _ => t,
+                    }
                 } else {
                     t
                 }
@@ -258,7 +274,7 @@ pub fn replace(matches: &[TokenStream], stream: TokenStream) -> TokenStream {
         };
         out.append(t);
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -558,7 +574,7 @@ mod test {
     macro_rules! test_replace {
         ([$({$($matches: tt)*}),*$(,)?] + { $($tt: tt)* } => $($out: tt)*) => {
             eprintln!("{} + {} => {}", stringify!([$({$($matches)*}),*]), stringify!($($tt)*), stringify!($($out)*));
-            let x = replace(&[$(quote! { $($matches)* }),*], quote! { $($tt)* });
+            let x = replace(&[$(quote! { $($matches)* }),*], quote! { $($tt)* }).unwrap();
             assert_eq!(x.to_string(), quote! { $($out)* }.to_string());
         };
     }
@@ -586,7 +602,7 @@ mod test {
         let out = replace(
             &out,
             quote! { repeat = (#0, #1), adapter = |name: impl Into<#0>, value: Value| (name.into(), value) },
-        );
+        ).unwrap();
         dbg!(out.to_string());
         assert_eq!(
             out.to_string(),

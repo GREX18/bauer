@@ -68,16 +68,16 @@ pub(crate) struct On {
 }
 
 impl On {
-    pub fn apply(&self, field_ty: &Type) -> Option<TokenStream> {
+    pub fn apply(&self, field_ty: &Type) -> syn::Result<Option<TokenStream>> {
         use crate::util::pattern::{pattern_match_type, replace};
 
         let mut out = Vec::new();
         let matches = pattern_match_type(&self.pattern, field_ty, &mut out);
         if !matches {
-            return None;
+            return Ok(None);
         }
 
-        Some(replace(&out, self.attributes.clone()))
+        Ok(Some(replace(&out, self.attributes.clone())?))
     }
 }
 

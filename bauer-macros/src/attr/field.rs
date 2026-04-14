@@ -352,7 +352,7 @@ impl BuilderField {
             let mut out = FieldAttr::default();
 
             for on in &builder_attr.on {
-                if let Some(replaced) = on.apply(&value.ty) {
+                if let Some(replaced) = on.apply(&value.ty)? {
                     syn::parse::Parser::parse2(
                         |input: ParseStream| out.parse(input, builder_attr, value, wrapped_option),
                         replaced,
