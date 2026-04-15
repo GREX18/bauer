@@ -7,5 +7,4 @@ error[E0599]: no method named `build` found for struct `FooBuilder<Foo_FieldA_Se
 10 |     let foo: Foo = Foo::builder().build(); // fail
    |                                   ^^^^^ method not found in `FooBuilder<Foo_FieldA_Set<false>>`
    |
-   = note: the method was found for
-           - `FooBuilder<Foo_FieldA_Set<true>>`
+   = note: the method was found for `FooBuilder<Foo_FieldA_Set<true>>`

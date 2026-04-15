@@ -11,13 +11,15 @@ note: trait bound `RangeInclusive_FieldA_Count<((), ())>: bauer::state::RangeInc
   --> tests/ui/type-state-range.fail.rs:3:10
    |
  3 | #[derive(Builder)]
-   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+   |          ^^^^^^^ unsatisfied bound `RangeInclusive_FieldA_Count<((), ())>: bauer::state::RangeInclusive<2, 3>` introduced here
 note: the trait `bauer::state::RangeInclusive` must be implemented
   --> src/lib.rs
    |
    | /     pub trait RangeInclusive<const LOW: usize, const HIGH: usize>:
    | |         __private::sealed::Sealed
    | |_________________________________^
+   = help: consider manually implementing the trait to avoid undesired bounds
+   = note: this error originates in the derive macro `Builder` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0599]: the method `build` exists for struct `RangeInclusiveBuilder<RangeInclusive_FieldA_Count<(((((), ()), ()), ()), ())>>`, but its trait bounds were not satisfied
   --> tests/ui/type-state-range.fail.rs:38:10
@@ -40,13 +42,15 @@ note: trait bound `RangeInclusive_FieldA_Count<(((((), ()), ()), ()), ())>: baue
   --> tests/ui/type-state-range.fail.rs:3:10
    |
  3 | #[derive(Builder)]
-   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+   |          ^^^^^^^ unsatisfied bound `RangeInclusive_FieldA_Count<(((((), ()), ()), ()), ())>: bauer::state::RangeInclusive<2, 3>` introduced here
 note: the trait `bauer::state::RangeInclusive` must be implemented
   --> src/lib.rs
    |
    | /     pub trait RangeInclusive<const LOW: usize, const HIGH: usize>:
    | |         __private::sealed::Sealed
    | |_________________________________^
+   = help: consider manually implementing the trait to avoid undesired bounds
+   = note: this error originates in the derive macro `Builder` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0599]: the method `build` exists for struct `RangeExclusiveBuilder<RangeExclusive_FieldA_Count<((), ())>>`, but its trait bounds were not satisfied
   --> tests/ui/type-state-range.fail.rs:40:66
@@ -61,13 +65,15 @@ note: trait bound `RangeExclusive_FieldA_Count<((), ())>: bauer::state::RangeExc
   --> tests/ui/type-state-range.fail.rs:10:10
    |
 10 | #[derive(Builder)]
-   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+   |          ^^^^^^^ unsatisfied bound `RangeExclusive_FieldA_Count<((), ())>: bauer::state::RangeExclusive<2, 3>` introduced here
 note: the trait `bauer::state::RangeExclusive` must be implemented
   --> src/lib.rs
    |
    | /     pub trait RangeExclusive<const LOW: usize, const HIGH: usize>:
    | |         __private::sealed::Sealed
    | |_________________________________^
+   = help: consider manually implementing the trait to avoid undesired bounds
+   = note: this error originates in the derive macro `Builder` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0599]: the method `build` exists for struct `RangeExclusiveBuilder<RangeExclusive_FieldA_Count<((((), ()), ()), ())>>`, but its trait bounds were not satisfied
   --> tests/ui/type-state-range.fail.rs:45:10
@@ -89,13 +95,15 @@ note: trait bound `RangeExclusive_FieldA_Count<((((), ()), ()), ())>: bauer::sta
   --> tests/ui/type-state-range.fail.rs:10:10
    |
 10 | #[derive(Builder)]
-   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+   |          ^^^^^^^ unsatisfied bound `RangeExclusive_FieldA_Count<((((), ()), ()), ())>: bauer::state::RangeExclusive<2, 3>` introduced here
 note: the trait `bauer::state::RangeExclusive` must be implemented
   --> src/lib.rs
    |
    | /     pub trait RangeExclusive<const LOW: usize, const HIGH: usize>:
    | |         __private::sealed::Sealed
    | |_________________________________^
+   = help: consider manually implementing the trait to avoid undesired bounds
+   = note: this error originates in the derive macro `Builder` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0599]: the method `build` exists for struct `RangeOpenBuilder<RangeOpen_FieldA_Count<((), ())>>`, but its trait bounds were not satisfied
   --> tests/ui/type-state-range.fail.rs:47:56
@@ -110,12 +118,14 @@ note: trait bound `RangeOpen_FieldA_Count<((), ())>: AtLeast<2>` was not satisfi
   --> tests/ui/type-state-range.fail.rs:17:10
    |
 17 | #[derive(Builder)]
-   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+   |          ^^^^^^^ unsatisfied bound `RangeOpen_FieldA_Count<((), ())>: AtLeast<2>` introduced here
 note: the trait `AtLeast` must be implemented
   --> src/lib.rs
    |
    |     pub trait AtLeast<const LOW: usize>: __private::sealed::Sealed {}
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider manually implementing the trait to avoid undesired bounds
+   = note: this error originates in the derive macro `Builder` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0599]: the method `build` exists for struct `ExactBuilder<Exact_FieldA_Count<((), ())>>`, but its trait bounds were not satisfied
   --> tests/ui/type-state-range.fail.rs:49:48
@@ -130,12 +140,14 @@ note: trait bound `Exact_FieldA_Count<((), ())>: bauer::state::Eq<2>` was not sa
   --> tests/ui/type-state-range.fail.rs:24:10
    |
 24 | #[derive(Builder)]
-   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+   |          ^^^^^^^ unsatisfied bound `Exact_FieldA_Count<((), ())>: bauer::state::Eq<2>` introduced here
 note: the trait `bauer::state::Eq` must be implemented
   --> src/lib.rs
    |
    |     pub trait Eq<const N: usize>: __private::sealed::Sealed {}
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider manually implementing the trait to avoid undesired bounds
+   = note: this error originates in the derive macro `Builder` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0599]: the method `build` exists for struct `ExactBuilder<Exact_FieldA_Count<((((), ()), ()), ())>>`, but its trait bounds were not satisfied
   --> tests/ui/type-state-range.fail.rs:50:70
@@ -150,9 +162,11 @@ note: trait bound `Exact_FieldA_Count<((((), ()), ()), ())>: bauer::state::Eq<2>
   --> tests/ui/type-state-range.fail.rs:24:10
    |
 24 | #[derive(Builder)]
-   |          ^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+   |          ^^^^^^^ unsatisfied bound `Exact_FieldA_Count<((((), ()), ()), ())>: bauer::state::Eq<2>` introduced here
 note: the trait `bauer::state::Eq` must be implemented
   --> src/lib.rs
    |
    |     pub trait Eq<const N: usize>: __private::sealed::Sealed {}
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: consider manually implementing the trait to avoid undesired bounds
+   = note: this error originates in the derive macro `Builder` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -134,6 +134,7 @@ enum Attribute {
     Doc,
     Collector,
     Skip,
+    Flag,
 }
 
 impl Attribute {
@@ -300,6 +301,10 @@ impl BuilderField {
         let attributes = &self.attr.attributes;
         let konst = builder_attr.konst_kw();
 
+        if self.attr.flag {
+            let attributes = &self.attr.attributes; 
+            let konst = builder_attr.konst_kw();
+            return quote! { #(#attributes)* #[must_use = "You have created a flag type but not used it"] #builder_vis #konst fn #fn_ident(#self_param) -> #return_type { #[allow(deprecated)] { self.#inner.#field_i = Some(true); } self } }; }
         quote! {
             #(#attributes)*
             #[must_use = "The builder doesn't construct its type until `.build()` is called"]
@@ -356,7 +361,11 @@ impl BuilderField {
         Ok(BuilderField {
             ident: ident.clone(),
             ty: ty.clone(),
-            missing_err: if attr.default.is_none() && attr.repeat.is_none() && !wrapped_option {
+            missing_err: if attr.default.is_none()
+                && attr.repeat.is_none()
+                && !wrapped_option
+                && !attr.flag
+            {
                 let mut ident = format_ident!(
                     "Missing{}",
                     ident
@@ -805,6 +814,7 @@ pub struct FieldAttr {
     pub tuple: Option<Option<Vec<Ident>>>,
     pub adapter: Option<Adapter>,
     pub attributes: Vec<syn::Attribute>,
+    pub flag: bool,
 }
 
 impl FieldAttr {
@@ -1148,6 +1158,22 @@ impl FieldAttr {
                     } else {
                         Skip::Default { ident }
                     };
+                }
+                Attribute::Flag => {
+                    if out.flag {
+                        bail!(ident.span() => "`flag` may only be used once");
+                    }
+                    if out.repeat.is_some() {
+                        bail!(ident.span() => "`flag` cannot be used with `repeat`");
+                    }
+                    if out.adapter.is_some() {
+                        bail!(ident.span() => "`flag` cannot be used with `adapter`");
+                    }
+                    // ensure it's a boolean attribute
+                    if !matches!(&field.ty, Type::Path(tp) if tp.path.is_ident("bool")) {
+                        bail!(ident.span() => "`flag` must affect a boolean attribute");
+                    }
+                    out.flag = true;
                 }
             }
             n_attr += 1;
