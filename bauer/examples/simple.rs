@@ -4,8 +4,10 @@ use bauer::Builder;
 
 #[derive(Debug, Builder)]
 #[builder(kind = "type-state", prefix = "set_")]
+#[builder(on(bool => default = "true"))]
+#[builder(on(_ => into))]
 pub struct Foo {
-    #[builder(default = "42")]
+    #[builder(default = "42u32")]
     field_a: u32,
     field_b: bool,
     #[builder(into)]
@@ -16,7 +18,7 @@ pub struct Foo {
 
 fn main() {
     let x: Foo = Foo::builder()
-        .set_field_a(69)
+        .set_field_a(69u32)
         .set_field_b(true)
         .set_field_c("hello world")
         .add_d(std::f64::consts::PI)

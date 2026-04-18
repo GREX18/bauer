@@ -71,6 +71,7 @@
 //! | [`build_fn`]                                 | Set details about the build function (`attributes`, `doc`, `rename`)                                        | `build_fn(...)`                              |
 //! | [`builder_fn`]                               | Set details about the builder function added to the struct (`attributes`, `doc`, `rename`)                  | `builder_fn(...)`                            |
 //! | [`error`]                                    | Set details about the generated error enum (`attributes`, `doc`, `rename`, `force`)                         | `error(...)`                                 |
+//! | [`on`]                                       | Apply field attributes to fields that match a specific type pattern                                         | `on(<type> => <attributes ...>)`             |
 //!
 //! [`kind`]: Builder#kind
 //! [`const`]: Builder#const
@@ -82,6 +83,7 @@
 //! [`build_fn`]: Builder#build_fn
 //! [`builder_fn`]: Builder#builder_fn
 //! [`error`]: Builder#error
+//! [`on`]: Builder#on
 //!
 //! ## Field Attributes
 //!
@@ -476,6 +478,56 @@
 ///     .field(3)
 ///     .build();
 /// # let _ = result;
+/// ```
+///
+/// ## **`on`**
+///
+/// Specify a set of [field attributes](#field-attributes) that should be applied to all fields that
+/// match a specific type.
+///
+/// Type matching is done by specifying a pattern that may contain `_` to represent a wildcard type.
+/// When a wildcard is matched, the result of the match is can be used in the attributes as
+/// `#<index>` (i.e., `#0`). Due to parsing reasons, a wildcard after `dyn` needs to be specified
+/// with `__`.
+///
+/// > ### **NOTE**
+/// >
+/// > _Due to how derive macros work, this type matching happens on the level of tokens.  So,
+/// > `Vec<_>` does _not_ match `std::vec::Vec<T>`.  This limitation applies to all parts of the
+/// > type, including generics, constants, etc._
+///
+/// ```
+/// # use bauer_macros::Builder;
+/// #[derive(Builder)]
+/// #[builder(on(Vec<_> => repeat))]
+/// pub struct Foo {
+///     field: Vec<u32>,
+/// }
+///
+/// let result: Foo = Foo::builder()
+///     .field(0)
+///     .field(1)
+///     .field(2)
+///     .build();
+/// ```
+///
+/// ```
+/// # use bauer_macros::Builder;
+/// # use std::collections::HashMap;
+/// #[derive(Builder)]
+/// #[builder(on(HashMap<_, _> => repeat = (#0, #1), tuple))]
+/// pub struct Foo {
+///     #[builder(into)]
+///     bar: HashMap<String, f64>,
+///     baz: HashMap<u32, f64>,
+/// }
+///
+/// let result: Foo = Foo::builder()
+///     .bar("pi", 3.14)
+///     .bar("tau", 6.28)
+///     .baz(0, 1.0)
+///     .baz(5, 63.4)
+///     .build();
 /// ```
 ///
 /// # Fields Attributes

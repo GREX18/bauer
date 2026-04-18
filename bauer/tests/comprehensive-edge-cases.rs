@@ -596,7 +596,6 @@ macro_rules! tests {
             fn test_maximum_generic_parameters() {
                 #[derive(Builder)]
                 #[builder(kind = $kind)]
-                #[builder(build_method = "construct")]
                 struct MaxGenerics<
                     'a,
                     'b,
