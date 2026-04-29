@@ -78,6 +78,8 @@ fn build_fn(
             }})
         } else if field.wrapped_option {
             quote! { inner.#field_i }
+        } else if field.attr.flag {
+            quote! { inner.#field_i }
         } else if let Some(default) = &field.attr.default {
             let default = default.to_value(field.attr.into);
 
@@ -308,6 +310,8 @@ pub fn type_state_builder(
             quote! { ::std::vec::Vec<#inner_ty> }
         } else if f.wrapped_option {
             quote! { ::core::option::Option<#ty> }
+        } else if f.attr.flag {
+            quote! { bool }
         } else {
             quote! { ::core::mem::MaybeUninit<#ty> }
         }
@@ -324,6 +328,8 @@ pub fn type_state_builder(
             quote! { ::std::vec::Vec::new() }
         } else if f.wrapped_option {
             quote! { ::core::option::Option::None }
+        } else if f.attr.flag {
+            quote! { false }
         } else {
             quote! { ::core::mem::MaybeUninit::uninit() }
         }
@@ -514,6 +520,34 @@ pub fn type_state_builder(
                     }
                 }
             }
+            None if f.attr.flag => {
+                let impl_generics = CustomImplGenerics::new(
+                    &input.generics,
+                    generic_fields.iter().map(|f| &f.idents.pascal),
+                );
+                let ty_generics = CustomTypeGenerics::new(
+                    &input.generics,
+                    generic_fields.iter().map(|f| &f.idents.pascal),
+                );
+                quote_spanned! {
+                    fn_ident.span() =>
+                    impl #impl_generics #builder #ty_generics #where_clause {
+                        #(#fn_attributes)*
+                        #[allow(clippy::type_complexity)]
+                        pub #konst fn #fn_ident(self) -> #builder #ty_generics {
+                            let mut this = self;
+                            #[allow(deprecated)]
+                            {
+                                this.#inner.#field_i = true;
+                                #builder {
+                                    #inner: this.#inner,
+                                    #state: ::core::marker::PhantomData,
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             None => {
                 let impl_generics_fields = CustomImplGenerics::new(
                     &input.generics,
@@ -540,9 +574,13 @@ pub fn type_state_builder(
                         .replace(i, parse_quote! { #set<true> }),
                 );
 
-                let setter = if f.wrapped_option {
+                let _setter = if f.wrapped_option {
                     quote! {
                         this.#inner.#field_i = Some(value);
+                    }
+                } else if f.attr.flag {
+                    quote! {
+                        this.#inner.#field_i = true;
                     }
                 } else {
                     quote! {
@@ -556,11 +594,12 @@ pub fn type_state_builder(
                         #(#fn_attributes)*
                         #[allow(clippy::type_complexity)]
                         pub #konst fn #fn_ident(self, #args) -> #builder #return_struct_generics_fields {
-                            let value: #value_ty = #value;
                             let mut this = self; // rather than have `mut self` in the signature
                             #[allow(deprecated)] // #inner is set to deprecated
                             {
-                                #setter
+                                if !f.attr.flag {
+                                    // won't work in quote - instead guard the whole quote:
+                                }
                                 #builder {
                                     #inner: this.#inner,
                                     #state: ::core::marker::PhantomData,

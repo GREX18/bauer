@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::ops::Range; 
 
 use convert_case::{Case, Casing};
 use proc_macro2::{Span, TokenStream};
@@ -254,7 +254,7 @@ impl BuilderField {
     }
 
     pub fn optional(&self) -> bool {
-        self.wrapped_option || self.attr.default.is_some()
+        self.wrapped_option || self.attr.default.is_some() || self.attr.flag
     }
 
     pub fn function_ident(&self, builder_attr: &BuilderAttr) -> Ident {
@@ -292,7 +292,9 @@ impl BuilderField {
 
         let field_i = self.tuple_index();
 
-        let setter = if self.attr.repeat.is_some() {
+        let setter = if self.attr.flag {
+            quote! { self.#inner.#field_i = true }
+        } else if self.attr.repeat.is_some() {
             quote! { let _ = self.#inner.#field_i.push(value) }
         } else {
             quote! { self.#inner.#field_i = Some(value) }
@@ -301,19 +303,33 @@ impl BuilderField {
         let attributes = &self.attr.attributes;
         let konst = builder_attr.konst_kw();
 
-        if self.attr.flag {
-            let attributes = &self.attr.attributes; 
-            let konst = builder_attr.konst_kw();
-            return quote! { #(#attributes)* #[must_use = "You have created a flag type but not used it"] #builder_vis #konst fn #fn_ident(#self_param) -> #return_type { #[allow(deprecated)] { self.#inner.#field_i = Some(true); } self } }; }
-        quote! {
-            #(#attributes)*
-            #[must_use = "The builder doesn't construct its type until `.build()` is called"]
-            #builder_vis #konst fn #fn_ident(#self_param, #args) -> #return_type {
+        let must_use_msg = if self.attr.flag {
+            "You have created a flag type but not used it"
+        } else {
+            "The builder doesn't construct its type until `.build()` is called"
+        };
+        let body = if self.attr.flag {
+            quote! {
+                #[allow(deprecated)] // #inner is set to deprecated
+                {
+                    #setter;
+                }
+            }
+        } else {
+            quote! {
                 let value: #ty = #value;
                 #[allow(deprecated)] // #inner is set to deprecated
                 {
                     #setter;
                 }
+            }
+        };
+
+        quote! {
+            #(#attributes)*
+            #[must_use = #must_use_msg]
+            #builder_vis #konst fn #fn_ident(#self_param, #args) -> #return_type {
+                #body
                 self
             }
         }
@@ -326,7 +342,6 @@ impl BuilderField {
         tuple_index: &mut usize,
     ) -> syn::Result<Self> {
         let ident = value.ident.as_ref().expect("We only support named fields");
-
         let (ty, wrapped_option) = if let Some(ty) = get_single_generic(&value.ty, Some("Option")) {
             (ty, true)
         } else {
@@ -819,6 +834,9 @@ pub struct FieldAttr {
 
 impl FieldAttr {
     pub fn to_args_and_value(&self, ty: &Type, field_name: &Ident) -> (TokenStream, TokenStream) {
+        if self.flag {
+            return (quote! {}, quote! {});
+        }
         if let Some(adapter) = &self.adapter {
             return adapter.to_args_and_value();
         }
@@ -1171,7 +1189,7 @@ impl FieldAttr {
                     }
                     // ensure it's a boolean attribute
                     if !matches!(&field.ty, Type::Path(tp) if tp.path.is_ident("bool")) {
-                        bail!(ident.span() => "`flag` must affect a boolean attribute");
+                       bail!(ident.span() => "`flag` may only be applied to a boolean field");
                     }
                     out.flag = true;
                 }
