@@ -1,0 +1,5 @@
+error: `default` cannot be added with `repeat`
+ --> tests/ui/on-conflict.fail.rs:6:15
+  |
+6 |     #[builder(default)]
+  |               ^^^^^^^

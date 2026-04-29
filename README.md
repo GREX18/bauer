@@ -80,6 +80,7 @@ a `#[builder(..)]` attribute.  For a more detailed description and examples, che
 | [`build_fn`]                                 | Set details about the build function (`attributes`, `doc`, `rename`)                                        | `build_fn(...)`                              |
 | [`builder_fn`]                               | Set details about the builder function added to the struct (`attributes`, `doc`, `rename`)                  | `builder_fn(...)`                            |
 | [`error`]                                    | Set details about the generated error enum (`attributes`, `doc`, `rename`, `force`)                         | `error(...)`                                 |
+| [`on`]                                       | Apply field attributes to fields that match a specific type pattern                                         | `on(<type> => <attributes ...>)`             |
 
 [`kind`]: https://docs.rs/bauer/latest/bauer/derive.Builder.html#kind
 [`const`]: https://docs.rs/bauer/latest/bauer/derive.Builder.html#const
@@ -91,6 +92,7 @@ a `#[builder(..)]` attribute.  For a more detailed description and examples, che
 [`build_fn`]: https://docs.rs/bauer/latest/bauer/derive.Builder.html#build_fn
 [`builder_fn`]: https://docs.rs/bauer/latest/bauer/derive.Builder.html#builder_fn
 [`error`]: https://docs.rs/bauer/latest/bauer/derive.Builder.html#error
+[`on`]: https://docs.rs/bauer/latest/bauer/derive.Builder.html#on
 
 ### Field Attributes
 

@@ -1,0 +1,5 @@
+error: index out of bounds: there were 1 matches but the index is 1, if you intended a literal '#1', use '# #1'
+ --> tests/ui/on-index-oob.fail.rs:4:33
+  |
+4 | #[builder(on(Vec<_> => repeat = #1))]
+  |                                 ^^

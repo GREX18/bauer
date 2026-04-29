@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use strum::{AsRefStr, IntoStaticStr, VariantArray};
 use syn::{
-    Ident, ItemConst, LitStr, Token, Visibility,
+    Ident, ItemConst, LitStr, Token, Type, Visibility,
     ext::IdentExt,
     parse::{Parse, ParseStream},
     parse_quote,
@@ -61,10 +61,39 @@ impl Parse for Kind {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct On {
+    pattern: Type,
+    attributes: TokenStream,
+}
+
+impl On {
+    pub fn apply(&self, field_ty: &Type) -> syn::Result<Option<TokenStream>> {
+        use crate::util::pattern::{pattern_match_type, replace};
+
+        pattern_match_type(&self.pattern, field_ty)
+            .map(|matches| replace(&matches, self.attributes.clone()))
+            .transpose()
+    }
+}
+
+impl Parse for On {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let pattern: Type = input.parse()?;
+        let _arrow: Token![=>] = input.parse()?;
+        let attributes: TokenStream = input.parse()?;
+        Ok(Self {
+            pattern,
+            attributes,
+        })
+    }
+}
+
 #[derive(Clone, Copy, VariantArray, IntoStaticStr, AsRefStr, Debug, PartialEq, Eq)]
 #[strum(serialize_all = "snake_case")]
+#[repr(usize)]
 enum Attribute {
-    Kind,
+    Kind = 0,
     Prefix,
     Suffix,
     Visibility,
@@ -76,9 +105,28 @@ enum Attribute {
     BuildFn,
     BuilderFn,
     Error,
+    On,
 }
 
 impl Attribute {
+    #[inline]
+    const fn single_use(&self) -> bool {
+        match self {
+            Attribute::Kind => true,
+            Attribute::Prefix => true,
+            Attribute::Suffix => true,
+            Attribute::Visibility => true,
+            Attribute::Crate => true,
+            Attribute::Const => true,
+            Attribute::Attributes => false,
+            Attribute::Doc => false,
+            Attribute::BuildFn => true,
+            Attribute::BuilderFn => true,
+            Attribute::Error => true,
+            Attribute::On => false,
+        }
+    }
+
     fn matches(self, ident: &Ident) -> bool {
         if ident == self.as_ref() {
             return true;
@@ -124,6 +172,8 @@ pub struct BuilderAttr {
     pub build_fn: BuildFnAttr,
     pub builder_fn: BuildFnAttr,
     pub error: ErrorAttr,
+    pub on: Vec<On>,
+    pub set_fields: [bool; const { Attribute::VARIANTS.len() }],
 }
 
 impl BuilderAttr {
@@ -139,6 +189,8 @@ impl BuilderAttr {
             build_fn: BuildFnAttr::default_build(),
             builder_fn: BuildFnAttr::default_builder(),
             error: Default::default(),
+            on: Default::default(),
+            set_fields: Default::default(),
         }
     }
 
@@ -183,116 +235,69 @@ impl BuilderAttr {
         }
     }
 
-    pub fn parse(input: ParseStream, vis: Visibility) -> syn::Result<Self> {
-        let mut out = Self::new(vis);
-
-        let mut kind_set = false;
-        let mut prefix_set = false;
-        let mut suffix_set = false;
-        let mut vis_set = false;
-        let mut crate_set = false;
-        let mut build_fn_set = false;
-        let mut builder_fn_set = false;
-        let mut error_set = false;
-
+    pub fn parse(&mut self, input: ParseStream) -> syn::Result<()> {
         while input.peek(Ident::peek_any) {
             let ident = Ident::parse_any(input)?;
+            let attr = Attribute::parse(&ident)?;
+
+            if self.set_fields[attr as usize] && attr.single_use() {
+                bail!(ident.span() => "`{}` may only be used once", <&str>::from(attr));
+            }
+            self.set_fields[attr as usize] = true;
+
             match Attribute::parse(&ident)? {
                 Attribute::Kind => {
-                    if kind_set {
-                        bail!(ident.span() => "`kind` may only be used once");
-                    }
-
                     let _: Token![=] = input.parse()?;
-                    out.kind = input.parse()?;
-                    kind_set = true;
+                    self.kind = input.parse()?;
                 }
                 Attribute::Prefix => {
-                    if prefix_set {
-                        bail!(ident.span() => "`prefix` may only be used once");
-                    }
-
                     let _: Token![=] = input.parse()?;
-                    out.prefix = input.parse::<LitStr>()?.value();
-                    prefix_set = true;
+                    self.prefix = input.parse::<LitStr>()?.value();
                 }
                 Attribute::Suffix => {
-                    if suffix_set {
-                        bail!(ident.span() => "`suffix` may only be used once");
-                    }
-
                     let _: Token![=] = input.parse()?;
-                    out.suffix = input.parse::<LitStr>()?.value();
-                    suffix_set = true;
+                    self.suffix = input.parse::<LitStr>()?.value();
                 }
                 Attribute::Visibility => {
-                    if vis_set {
-                        bail!(ident.span() => "`visibility` may only be used once");
-                    }
-
                     let _: Token![=] = input.parse()?;
-                    out.vis = input.parse()?;
-                    vis_set = true;
+                    self.vis = input.parse()?;
                 }
                 Attribute::Crate => {
-                    if crate_set {
-                        bail!(ident.span() => "`crate` may only be used once");
-                    }
-
                     let _: Token![=] = input.parse()?;
-                    out.krate = input.parse()?;
-                    crate_set = true;
+                    self.krate = input.parse()?;
                 }
                 Attribute::Const => {
-                    if out.konst {
-                        bail!(ident.span() => "`const` may only be used once");
-                    }
-
-                    out.konst = true;
+                    self.konst = true;
                 }
                 Attribute::Attributes => {
                     let attrs = parethesised_or_braced(input)?;
 
                     if !attrs.is_empty() {
-                        parse_attributes(&attrs, &mut out.attributes)?;
+                        parse_attributes(&attrs, &mut self.attributes)?;
                     }
                 }
                 Attribute::Doc => {
                     let attrs = parethesised_or_braced(input)?;
 
                     if !attrs.is_empty() {
-                        parse_docs(&attrs, ident.span(), &mut out.attributes)?;
+                        parse_docs(&attrs, ident.span(), &mut self.attributes)?;
                     }
                 }
                 Attribute::BuildFn => {
-                    if build_fn_set {
-                        bail!(ident.span() => "`build_fn` may only be used once");
-                    }
-
                     let build_fn = parethesised_or_braced(input)?;
-                    out.build_fn.parse(&build_fn)?;
-
-                    build_fn_set = true;
+                    self.build_fn.parse(&build_fn)?;
                 }
                 Attribute::BuilderFn => {
-                    if builder_fn_set {
-                        bail!(ident.span() => "`builder_fn` may only be used once");
-                    }
-
                     let builder_fn = parethesised_or_braced(input)?;
-                    out.builder_fn.parse(&builder_fn)?;
-
-                    builder_fn_set = true;
+                    self.builder_fn.parse(&builder_fn)?;
                 }
                 Attribute::Error => {
-                    if error_set {
-                        bail!(ident.span() => "`build_fn` may only be used once");
-                    }
-
                     let error = parethesised_or_braced(input)?;
-                    out.error = ErrorAttr::parse(&error)?;
-
-                    error_set = true;
+                    self.error = ErrorAttr::parse(&error)?;
+                }
+                Attribute::On => {
+                    let inner = parethesised_or_braced(input)?;
+                    self.on.push(inner.parse()?);
                 }
             }
 
@@ -303,6 +308,6 @@ impl BuilderAttr {
             }
         }
 
-        Ok(out)
+        Ok(())
     }
 }

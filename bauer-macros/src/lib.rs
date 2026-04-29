@@ -18,6 +18,153 @@ mod attr;
 mod type_state;
 mod util;
 
+/// A very minimal builder implementation where everything panics
+fn failed_builder(
+    mut builder_attr: BuilderAttr,
+    input: &DeriveInput,
+    fields: Vec<BuilderField>,
+    errors: &[syn::Error],
+) -> TokenStream2 {
+    assert!(!errors.is_empty());
+
+    let is_type_state = builder_attr.kind == Kind::TypeState;
+    // Some of the simpler functions require that the kind is not type-state and since we're
+    // failing, it doesn't really matter.
+    builder_attr.kind = Kind::Owned;
+
+    let ident = &input.ident;
+    let assert_crate = builder_attr.assert_crate();
+    let builder_attributes = &builder_attr.attributes;
+    let builder_vis = &builder_attr.vis;
+    let builder = format_ident!("{}Builder", ident);
+    let build_err = builder_attr.error.name(ident);
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    let konst = builder_attr.konst_kw();
+    let self_param = builder_attr.self_param();
+
+    let functions: TokenStream2 = fields
+        .iter()
+        .filter(|f| !f.should_skip())
+        .map(|f| f.fail_fn(&builder_attr))
+        .collect();
+
+    let (build_err_variants, _) = gen_error_enum(&fields);
+
+    let infallible = (is_type_state || build_err_variants.is_empty()) && !builder_attr.error.force;
+
+    let build_err_enum = if infallible {
+        quote! {}
+    } else {
+        let attributes = &builder_attr.error.attributes;
+        quote! {
+            #(#attributes)*
+            #[derive(::std::fmt::Debug, ::std::cmp::PartialEq, ::std::cmp::Eq)]
+            #builder_vis enum #build_err {}
+
+            impl ::core::fmt::Display for #build_err {
+                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    panic!("Invalid Builder");
+                }
+            }
+
+            impl ::core::error::Error for #build_err {}
+        }
+    };
+
+    let ret_ty = if infallible {
+        quote! { #ident #ty_generics }
+    } else {
+        quote! { ::core::result::Result<#ident #ty_generics, #build_err> }
+    };
+
+    let build_fn_attributes = &builder_attr.build_fn.attributes;
+    let build_fn_name = &builder_attr.build_fn.name;
+    let build_fn = quote! {
+        #(#build_fn_attributes)*
+        #builder_vis #konst fn #build_fn_name(#self_param) -> #ret_ty {
+            panic!("Invalid Builder")
+        }
+    };
+
+    let into_impl = into_impl(
+        &builder_attr,
+        input,
+        &builder,
+        (!infallible).then_some(build_err),
+    );
+
+    let builder_fn = builder_fn(input, &builder_attr, &builder);
+
+    let errors = errors.iter().map(syn::Error::to_compile_error);
+
+    quote! {
+        #assert_crate
+
+        #build_err_enum
+
+        #(#builder_attributes)*
+        #[must_use = "The builder doesn't construct its type until `.build()` is called"]
+        #builder_vis struct #builder #impl_generics #where_clause {}
+
+        impl #impl_generics #builder #ty_generics #where_clause {
+            #functions
+
+            #build_fn
+        }
+
+        impl #impl_generics #builder #ty_generics #where_clause {
+            #konst fn new() -> Self {
+                panic!("Invalid Builder")
+            }
+        }
+
+        impl #impl_generics ::core::default::Default for #builder #ty_generics #where_clause {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        #builder_fn
+
+        #into_impl
+
+        #(#errors)*
+    }
+}
+
+fn into_impl(
+    builder_attr: &BuilderAttr,
+    input: &DeriveInput,
+    builder: &Ident,
+    error: Option<impl ToTokens>,
+) -> TokenStream2 {
+    let ident = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let build_fn_name = &builder_attr.build_fn.name;
+
+    if let Some(build_err) = error {
+        quote! {
+            #[allow(clippy::infallible_try_from)]
+            impl #impl_generics ::core::convert::TryFrom<#builder #ty_generics> for #ident #ty_generics #where_clause {
+                type Error = #build_err;
+
+                fn try_from(mut builder: #builder #ty_generics) -> Result<Self, Self::Error> {
+                    builder.#build_fn_name()
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl #impl_generics ::core::convert::From<#builder #ty_generics> for #ident #ty_generics #where_clause {
+                fn from(mut builder: #builder #ty_generics) -> Self {
+                    builder.#build_fn_name()
+                }
+            }
+        }
+    }
+}
+
 fn builder_fn(input: &DeriveInput, builder_attr: &BuilderAttr, builder: &Ident) -> TokenStream2 {
     let ident = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -37,21 +184,60 @@ fn builder_fn(input: &DeriveInput, builder_attr: &BuilderAttr, builder: &Ident) 
     }
 }
 
+fn parse_build_attr(input: &DeriveInput, errors: &mut Vec<syn::Error>) -> BuilderAttr {
+    let mut out = BuilderAttr::new(input.vis.clone());
+    for attr in input.attrs.iter().filter(|a| a.path().is_ident("builder")) {
+        if let Err(e) = attr.parse_args_with(|ps: ParseStream| out.parse(ps)) {
+            errors.push(e);
+        }
+    }
+    out
+}
+
+fn gen_error_enum(fields: &[BuilderField]) -> (Vec<TokenStream2>, Vec<TokenStream2>) {
+    fields
+        .iter()
+        .filter(|f| !f.should_skip())
+        .flat_map(|f| {
+            let mut variants = Vec::new();
+            if let Some(err) = &f.missing_err {
+                let msg = format!("Missing required field '{}'", f.ident);
+                variants.push((
+                    err.to_token_stream(),
+                    quote! { Self::#err => write!(f, #msg) },
+                ));
+            }
+            if let Some(Repeat {
+                len: Len::Raw { pattern, error },
+                ..
+            }) = &f.attr.repeat
+            {
+                let error_msg = format!(
+                    "Invalid number of repeat arguments provided.  Expected {}, got {{}}",
+                    pattern.to_token_stream()
+                );
+                variants.push((
+                    quote! {
+                        #error(usize)
+                    },
+                    quote! {
+                        Self::#error(n) => write!(f, #error_msg, n)
+                    },
+                ));
+            }
+            variants.into_iter()
+        })
+        .collect()
+}
+
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn builder(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let ident = &input.ident;
-    let vis = &input.vis;
 
-    let attr = input.attrs.iter().find(|a| a.path().is_ident("builder"));
-    let builder_attr: BuilderAttr = if let Some(attr) = attr {
-        match attr.parse_args_with(|ps: ParseStream| BuilderAttr::parse(ps, vis.clone())) {
-            Ok(a) => a,
-            Err(e) => return e.to_compile_error().into(),
-        }
-    } else {
-        BuilderAttr::new(vis.clone())
-    };
+    let mut errors = Vec::new();
+
+    let builder_attr: BuilderAttr = parse_build_attr(&input, &mut errors);
 
     let data_struct = match input.data {
         syn::Data::Struct(ref data_struct) => data_struct,
@@ -77,16 +263,17 @@ pub fn builder(input: TokenStream) -> TokenStream {
 
 
     let mut tuple_index = 0;
-    let fields: Vec<_> = match data_struct.fields {
-        syn::Fields::Named(ref fields_named) => match fields_named
-            .named
-            .iter()
-            .map(|f| BuilderField::parse(f, &builder_attr, ident, &mut tuple_index))
-            .collect::<Result<_, _>>()
-        {
-            Ok(v) => v,
-            Err(e) => return e.to_compile_error().into(),
-        },
+    let fields = match data_struct.fields {
+        syn::Fields::Named(ref fields_named) => {
+            //
+            fields_named
+                .named
+                .iter()
+                .map(|f| {
+                    BuilderField::parse(f, &builder_attr, ident, &mut tuple_index, &mut errors)
+                })
+                .collect::<Vec<_>>()
+        }
         syn::Fields::Unnamed(_) => {
             return syn::Error::new(ident.span(), "Unnamed fields are not supported.")
                 .to_compile_error()
@@ -100,6 +287,10 @@ pub fn builder(input: TokenStream) -> TokenStream {
     };
 
     let private_module = builder_attr.private_module();
+
+    if !errors.is_empty() {
+        return failed_builder(builder_attr, &input, fields, &errors).into();
+    }
 
     if builder_attr.kind == Kind::TypeState {
         return type_state::type_state_builder(&builder_attr, &input, fields).into();
@@ -117,8 +308,12 @@ pub fn builder(input: TokenStream) -> TokenStream {
             }) = &f.attr.repeat
             {
                 if *array {
-                    let Len::Raw { pattern, .. } = &len else {
-                        unreachable!("If array, then Len::Raw set");
+                    let pattern = match &len {
+                        Len::Raw { pattern, .. } => pattern.to_token_stream(),
+                        Len::Int { len } => len.to_token_stream(),
+                        _ => {
+                            unreachable!("If array, then Len::Raw set");
+                        }
                     };
                     (
                         quote! { #private_module::PushableArray<#pattern, #inner_ty> },
@@ -151,39 +346,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
         .map(|f| f.function(&builder_attr, &inner))
         .collect();
 
-    let (build_err_variants, build_err_messages): (Vec<_>, Vec<_>) = fields
-        .iter()
-        .filter(|f| !f.should_skip())
-        .flat_map(|f| {
-            let mut variants = Vec::new();
-            if let Some(err) = &f.missing_err {
-                let msg = format!("Missing required field '{}'", f.ident);
-                variants.push((
-                    err.to_token_stream(),
-                    quote! { Self::#err => write!(f, #msg) },
-                ));
-            }
-            if let Some(Repeat {
-                len: Len::Raw { pattern, error },
-                ..
-            }) = &f.attr.repeat
-            {
-                let error_msg = format!(
-                    "Invalid number of repeat arguments provided.  Expected {}, got {{}}",
-                    pattern.to_token_stream()
-                );
-                variants.push((
-                    quote! {
-                        #error(usize)
-                    },
-                    quote! {
-                        Self::#error(n) => write!(f, #error_msg, n)
-                    },
-                ));
-            }
-            variants.into_iter()
-        })
-        .collect();
+    let (build_err_variants, build_err_messages) = gen_error_enum(&fields);
 
     let not_skipped_field_values = fields.iter().filter(|f| !f.should_skip()).map(|field| {
         let name = &field.ident;
@@ -344,26 +507,12 @@ pub fn builder(input: TokenStream) -> TokenStream {
         }
     };
 
-    let into_impl = if build_err_variants.is_empty() && !builder_attr.error.force {
-        quote! {
-            impl #impl_generics ::core::convert::From<#builder #ty_generics> for #ident #ty_generics #where_clause {
-                fn from(mut builder: #builder #ty_generics) -> Self {
-                    builder.#build_fn_name()
-                }
-            }
-        }
-    } else {
-        quote! {
-            #[allow(clippy::infallible_try_from)]
-            impl #impl_generics ::core::convert::TryFrom<#builder #ty_generics> for #ident #ty_generics #where_clause {
-                type Error = #build_err;
-
-                fn try_from(mut builder: #builder #ty_generics) -> Result<Self, Self::Error> {
-                    builder.#build_fn_name()
-                }
-            }
-        }
-    };
+    let into_impl = into_impl(
+        &builder_attr,
+        &input,
+        &builder,
+        (!build_err_variants.is_empty() || builder_attr.error.force).then_some(build_err),
+    );
 
     let builder_attributes = &builder_attr.attributes;
 

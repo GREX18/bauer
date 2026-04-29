@@ -16,7 +16,7 @@ pub struct Foo {
 
 fn main() {
     let x: Foo = Foo::builder()
-        .set_field_a(69)
+        .set_field_a(69u32)
         .set_field_b(true)
         .set_field_c("hello world")
         .add_d(std::f64::consts::PI)

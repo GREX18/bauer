@@ -15,6 +15,35 @@ concurrency:
   cancel-in-progress: true
 name: test
 jobs:
+  test-ui:
+    # check that we can build using the minimal rust version that is specified by this crate
+    runs-on: ubuntu-latest
+    # we use a matrix here just because env can't be used in job names
+    # https://docs.github.com/en/actions/learn-github-actions/contexts#context-availability
+    strategy:
+      matrix:
+        msrv: ["1.85"]
+    name: ubuntu / ${{ matrix.msrv }} / ui
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          submodules: true
+      - name: Install ${{ matrix.msrv }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.msrv }}
+      - uses: actions/cache@v5.0.4
+        with:
+          path: ~/.cargo
+          key: ${{ runner.os }}-cargo
+      - name: cargo generate-lockfile
+        # enable this ci template to run regardless of whether the lockfile is checked in or not
+        if: hashFiles('Cargo.lock') == ''
+        run: cargo generate-lockfile
+      - name: cargo test --locked
+        run: cargo +${{ matrix.msrv }} test --locked --all-features --test ui
+      - name: cargo test --doc
+        run: cargo +${{ matrix.msrv }} test --locked --all-features --doc
   test-stable:
     runs-on: ubuntu-latest
     name: ubuntu / stable
@@ -32,7 +61,7 @@ jobs:
         run: cargo generate-lockfile
       # https://twitter.com/jonhoo/status/1571290371124260865
       - name: cargo test --locked
-        run: cargo test --locked --all-features --all-targets
+        run: cargo test --locked --all-features --all-targets -- --skip ui
       # https://github.com/rust-lang/cargo/issues/6669
       - name: cargo test --doc
         run: cargo test --locked --all-features --doc
@@ -53,7 +82,7 @@ jobs:
         run: cargo generate-lockfile
       # https://twitter.com/jonhoo/status/1571290371124260865
       - name: cargo test --locked
-        run: cargo test --locked --all-features --all-targets -- --skip ui # UI tests are broken in beta since the compiler text changed
+        run: cargo test --locked --all-features --all-targets -- --skip ui
       # https://github.com/rust-lang/cargo/issues/6669
       - name: cargo test --doc
         run: cargo test --locked --all-features --doc
@@ -99,7 +128,7 @@ jobs:
       - name: cargo update -Zminimal-versions
         run: cargo +nightly update -Zminimal-versions
       - name: cargo test
-        run: cargo test --locked --all-features --all-targets
+        run: cargo test --locked --all-features --all-targets -- --skip ui
   os-check:
     # run cargo test on mac and windows
     runs-on: ${{ matrix.os }}
@@ -120,4 +149,4 @@ jobs:
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
       - name: cargo test
-        run: cargo test --locked --all-features --all-targets
+        run: cargo test --locked --all-features --all-targets -- --skip ui

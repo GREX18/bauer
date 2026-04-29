@@ -5,19 +5,19 @@ use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use strum::{AsRefStr, IntoStaticStr, VariantArray};
 use syn::{
-    Expr, ExprClosure, Field, Ident, Index, LitStr, Pat, Path, Token, TraitBound, Type, braced,
+    Expr, ExprClosure, Field, Ident, Index, LitStr, Pat, Path, Token, TraitBound, Type,
     parenthesized,
     parse::{Parse, ParseStream},
     parse_quote, parse_quote_spanned,
     spanned::Spanned,
-    token::{Brace, Paren},
+    token::Paren,
 };
 
 use crate::{
     BuilderAttr, Kind,
     util::{
         escape_ident,
-        parse::{parse_attributes, parse_docs},
+        parse::{parethesised_or_braced, parse_attributes, parse_docs},
     },
 };
 
@@ -119,8 +119,9 @@ macro_rules! bail {
 
 #[derive(Clone, Copy, VariantArray, IntoStaticStr, AsRefStr, Debug, PartialEq, Eq)]
 #[strum(serialize_all = "snake_case")]
+#[repr(usize)]
 enum Attribute {
-    Default,
+    Default = 0,
     Into,
     Repeat,
     RepeatN,
@@ -152,6 +153,25 @@ impl Attribute {
         match self {
             Self::Attributes => ident == "attribute",
             _ => false,
+        }
+    }
+
+    #[inline]
+    const fn single_use(&self) -> bool {
+        match self {
+            Attribute::Default => true,
+            Attribute::Into => true,
+            Attribute::Repeat => true,
+            Attribute::RepeatN => true,
+            Attribute::Rename => true,
+            Attribute::SkipPrefix => true,
+            Attribute::SkipSuffix => true,
+            Attribute::Tuple => true,
+            Attribute::Adapter => true,
+            Attribute::Attributes => false,
+            Attribute::Doc => false,
+            Attribute::Collector => true,
+            Attribute::Skip => true,
         }
     }
 
@@ -280,24 +300,28 @@ impl BuilderField {
         ))
     }
 
-    pub(crate) fn function(&self, builder_attr: &BuilderAttr, inner: &Ident) -> TokenStream {
-        let field_name = &self.ident;
-
+    fn wrap_with_signature(
+        &self,
+        builder_attr: &BuilderAttr,
+        allow_unused: bool,
+        body: impl ToTokens,
+    ) -> TokenStream {
         let ty = self.arg_ty();
         let fn_ident = self.function_ident(builder_attr);
-        let (args, value) = self.attr.to_args_and_value(ty, field_name);
+        let (args, _) = self.attr.to_args_and_value(ty, &self.ident);
         let self_param = builder_attr.self_param();
         let return_type = builder_attr.return_type();
         let builder_vis = &builder_attr.vis;
 
-        let field_i = self.tuple_index();
+        let attributes = &self.attr.attributes;
+        let konst = builder_attr.konst_kw();
 
         let setter = if self.attr.flag {
             quote! { self.#inner.#field_i = true }
         } else if self.attr.repeat.is_some() {
             quote! { let _ = self.#inner.#field_i.push(value) }
         } else {
-            quote! { self.#inner.#field_i = Some(value) }
+            quote! {}
         };
 
         let attributes = &self.attr.attributes;
@@ -331,8 +355,8 @@ impl BuilderField {
             #builder_vis #konst fn #fn_ident(#self_param, #args) -> #return_type {
                 #body
                 self
-            }
-        }
+            },
+        )
     }
 
     pub fn parse(
@@ -340,7 +364,8 @@ impl BuilderField {
         builder_attr: &BuilderAttr,
         struct_name: &Ident,
         tuple_index: &mut usize,
-    ) -> syn::Result<Self> {
+        errors: &mut Vec<syn::Error>,
+    ) -> Self {
         let ident = value.ident.as_ref().expect("We only support named fields");
         let (ty, wrapped_option) = if let Some(ty) = get_single_generic(&value.ty, Some("Option")) {
             (ty, true)
@@ -348,14 +373,39 @@ impl BuilderField {
             (&value.ty, false)
         };
 
-        let mut attr: FieldAttr =
-            if let Some(attr) = value.attrs.iter().find(|a| a.path().is_ident("builder")) {
-                attr.parse_args_with(|input: ParseStream| {
-                    FieldAttr::parse(input, builder_attr, value, wrapped_option)
-                })?
-            } else {
-                FieldAttr::default()
-            };
+        let mut attr: FieldAttr = {
+            let mut out = FieldAttr::default();
+
+            for on in &builder_attr.on {
+                match on.apply(&value.ty) {
+                    Ok(Some(replaced)) => {
+                        match syn::parse::Parser::parse2(
+                            |input: ParseStream| {
+                                out.parse(input, builder_attr, value, wrapped_option)
+                            },
+                            replaced,
+                        ) {
+                            Ok(()) => {}
+                            Err(e) => errors.push(e),
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => errors.push(e),
+                }
+            }
+
+            for attr in value.attrs.iter().filter(|a| a.path().is_ident("builder")) {
+                let res = attr.parse_args_with(|input: ParseStream| {
+                    out.parse(input, builder_attr, value, wrapped_option)
+                });
+
+                if let Err(e) = res {
+                    errors.push(e);
+                }
+            }
+
+            out
+        };
 
         if !attr.attributes.iter().any(|a| a.path().is_ident("doc")) {
             attr.attributes.reserve(value.attrs.len());
@@ -373,7 +423,7 @@ impl BuilderField {
             *tuple_index += 1;
         }
 
-        Ok(BuilderField {
+        BuilderField {
             ident: ident.clone(),
             ty: ty.clone(),
             missing_err: if attr.default.is_none()
@@ -397,7 +447,7 @@ impl BuilderField {
             wrapped_option,
             idents: FieldIdents::new(struct_name, ident),
             tuple_index: this_tuple_index,
-        })
+        }
     }
 }
 
@@ -871,24 +921,29 @@ impl FieldAttr {
     }
 
     fn parse(
+        &mut self,
         input: syn::parse::ParseStream,
         builder_attr: &BuilderAttr,
         field: &Field,
         wrapped_option: bool,
-    ) -> syn::Result<Self> {
-        let mut out = FieldAttr::default();
+    ) -> syn::Result<()> {
         let field_ident = field.ident.as_ref().unwrap();
+
+        let mut set = [false; const { Attribute::VARIANTS.len() }];
 
         let mut n_attr = 0;
         while input.peek(syn::Ident) {
             let ident: Ident = input.parse()?;
-            match Attribute::parse(&ident)? {
-                Attribute::Default => {
-                    if out.default.is_some() {
-                        bail!(ident.span() => "`default` may only be used once");
-                    }
+            let attr = Attribute::parse(&ident)?;
 
-                    if out.repeat.is_some() {
+            if set[attr as usize] && attr.single_use() {
+                bail!(ident.span() => "`{}` may only be used once", attr.as_str());
+            }
+            set[attr as usize] = true;
+
+            match attr {
+                Attribute::Default => {
+                    if self.repeat.is_some() {
                         bail!(ident.span() => "`default` cannot be added with `repeat`");
                     }
 
@@ -911,14 +966,10 @@ impl FieldAttr {
                         DefaultAttr::Default { ident }
                     };
 
-                    out.default = Some(value)
+                    self.default = Some(value)
                 }
                 Attribute::Into => {
-                    if out.into.is_some() {
-                        bail!(ident.span() => "`into` may only be used once");
-                    }
-
-                    if out.adapter.is_some() {
+                    if self.adapter.is_some() {
                         bail!(ident.span() => "`into` cannot be added with `adapter`");
                     }
 
@@ -926,14 +977,10 @@ impl FieldAttr {
                         bail!(ident.span() => "`into` may not be used on const builders");
                     }
 
-                    out.into = Some(ident.span());
+                    self.into = Some(ident.span());
                 }
                 Attribute::Repeat => {
-                    if out.repeat.is_some() {
-                        bail!(ident.span() => "`repeat` may only be used once");
-                    }
-
-                    if out.default.is_some() {
+                    if self.default.is_some() {
                         bail!(ident.span() => "`repeat` cannot be added with `default`");
                     }
 
@@ -951,7 +998,7 @@ impl FieldAttr {
                         (s, Len::None, false)
                     } else {
                         let Some(inner) = get_single_generic(&field.ty, None) else {
-                            bail!(field.ty.span() => "Inner type must be specified to repeat on type without generics");
+                            bail!(ident.span() => "Inner type must be specified to repeat on type without generics");
                         };
 
                         if let Type::Array(array) = &field.ty {
@@ -978,7 +1025,7 @@ impl FieldAttr {
                         }
                     };
 
-                    out.repeat = Some(Repeat {
+                    self.repeat = Some(Repeat {
                         inner_ty: inner_ty.clone(),
                         len,
                         array,
@@ -986,7 +1033,7 @@ impl FieldAttr {
                     });
                 }
                 Attribute::RepeatN => {
-                    let Some(rep) = &mut out.repeat else {
+                    let Some(rep) = &mut self.repeat else {
                         bail!(ident.span() => "`repeat_n` may only be used with `repeat`");
                     };
 
@@ -1018,39 +1065,25 @@ impl FieldAttr {
                     };
                 }
                 Attribute::Rename => {
-                    if out.rename.is_some() {
-                        bail!(ident.span() => "`rename` may only be used once");
-                    }
-
                     let _: Token![=] = input.parse()?;
                     let s: LitStr = input.parse()?;
 
-                    out.rename = Some(s.parse()?);
+                    self.rename = Some(s.parse()?);
                 }
                 Attribute::SkipPrefix => {
-                    if out.skip_prefix {
-                        bail!(ident.span() => "`skip_prefix` may only be used once");
-                    }
-                    out.skip_prefix = true;
+                    self.skip_prefix = true;
                 }
                 Attribute::SkipSuffix => {
-                    if out.skip_suffix {
-                        bail!(ident.span() => "`skip_suffix` may only be used once");
-                    }
-                    out.skip_suffix = true;
+                    self.skip_suffix = true;
                 }
                 Attribute::Tuple => {
-                    if out.tuple.is_some() {
-                        bail!(ident.span() => "`tuple` may only be used once");
-                    }
-
-                    if out.adapter.is_some() {
+                    if self.adapter.is_some() {
                         bail!(ident.span() => "`tuple` cannot be added with `adapter`");
                     }
 
                     let tuple = match &field.ty {
                         Type::Tuple(tuple) => tuple,
-                        _ => match &out.repeat {
+                        _ => match &self.repeat {
                             Some(Repeat {
                                 inner_ty: Type::Tuple(tuple),
                                 ..
@@ -1067,30 +1100,26 @@ impl FieldAttr {
                         let idents = content.parse_terminated(Ident::parse, Token![,])?;
 
                         match tuple.elems.len().cmp(&idents.len()) {
-                            std::cmp::Ordering::Less => {
+                            Ordering::Less => {
                                 bail!(paren.span.join() => "More names than elements in tuple")
                             }
-                            std::cmp::Ordering::Equal => {}
-                            std::cmp::Ordering::Greater => {
+                            Ordering::Equal => {}
+                            Ordering::Greater => {
                                 bail!(paren.span.join() => "Fewer names than elements in tuple")
                             }
                         }
 
-                        out.tuple = Some(Some(idents.into_iter().collect()))
+                        self.tuple = Some(Some(idents.into_iter().collect()))
                     } else {
-                        out.tuple = Some(None)
+                        self.tuple = Some(None)
                     }
                 }
                 Attribute::Adapter => {
-                    if out.adapter.is_some() {
-                        bail!(ident.span() => "`adapter` may only be used once");
-                    }
-
-                    if out.tuple.is_some() {
+                    if self.tuple.is_some() {
                         bail!(ident.span() => "`adapter` cannot be added with `tuple`");
                     }
 
-                    if out.into.is_some() {
+                    if self.into.is_some() {
                         bail!(ident.span() => "`adapter` cannot be added with `into`");
                     }
 
@@ -1106,47 +1135,25 @@ impl FieldAttr {
                         return Err(la.error());
                     };
 
-                    out.adapter = Some(adapters);
+                    self.adapter = Some(adapters);
                 }
                 Attribute::Attributes => {
-                    let attrs;
-
-                    let la = input.lookahead1();
-                    if la.peek(Paren) {
-                        parenthesized!(attrs in input);
-                    } else if la.peek(Brace) {
-                        braced!(attrs in input);
-                    } else {
-                        return Err(la.error());
-                    }
+                    let attrs = parethesised_or_braced(input)?;
 
                     if !attrs.is_empty() {
-                        parse_attributes(&attrs, &mut out.attributes)?;
+                        parse_attributes(&attrs, &mut self.attributes)?;
                     }
                 }
                 Attribute::Doc => {
-                    let attrs;
-
-                    let la = input.lookahead1();
-                    if la.peek(Paren) {
-                        parenthesized!(attrs in input);
-                    } else if la.peek(Brace) {
-                        braced!(attrs in input);
-                    } else {
-                        return Err(la.error());
-                    }
+                    let attrs = parethesised_or_braced(input)?;
 
                     if !attrs.is_empty() {
-                        parse_docs(&attrs, ident.span(), &mut out.attributes)?;
+                        parse_docs(&attrs, ident.span(), &mut self.attributes)?;
                     }
                 }
                 Attribute::Collector => {
-                    let Some(repeat) = &mut out.repeat else {
+                    let Some(repeat) = &mut self.repeat else {
                         bail!(ident.span() => "`collector` may only be used with `repeat`");
-                    };
-
-                    if !matches!(repeat.collector, Collector::FromIterator { .. }) {
-                        bail!(ident.span() => "`collector` may only be used once");
                     };
 
                     if repeat.array {
@@ -1163,11 +1170,7 @@ impl FieldAttr {
                     };
                 }
                 Attribute::Skip => {
-                    if out.skip.is_set() {
-                        bail!(ident.span() => "`skip` may only be used once");
-                    }
-
-                    out.skip = if input.peek(Token![=]) {
+                    self.skip = if input.peek(Token![=]) {
                         let _: Token![=] = input.parse()?;
                         Skip::Expr {
                             ident,
@@ -1205,7 +1208,7 @@ impl FieldAttr {
 
         // validate the structure
         if n_attr != 1 {
-            if let Some(ident) = out.skip.ident() {
+            if let Some(ident) = self.skip.ident() {
                 bail!(
                     ident.span() =>
                     "`skip` may not be used with any other attributes"
@@ -1213,6 +1216,6 @@ impl FieldAttr {
             }
         }
 
-        Ok(out)
+        Ok(())
     }
 }
