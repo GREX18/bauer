@@ -1,10 +1,10 @@
-use std::ops::Range; 
+use std::ops::Range;
 
 use convert_case::{Case, Casing};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
-use strum::{AsRefStr, IntoStaticStr, VariantArray};
 use std::cmp::Ordering;
+use strum::{AsRefStr, IntoStaticStr, VariantArray};
 use syn::{
     Expr, ExprClosure, Field, Ident, Index, LitStr, Pat, Path, Token, TraitBound, Type,
     parenthesized,
@@ -161,7 +161,7 @@ impl Attribute {
     const fn single_use(&self) -> bool {
         match self {
             Attribute::Default => true,
-            Attribute::Flag => true, 
+            Attribute::Flag => true,
             Attribute::Into => true,
             Attribute::Repeat => true,
             Attribute::RepeatN => true,
@@ -252,10 +252,13 @@ impl BuilderField {
         }
     }
 
-pub fn function(&self, builder_attr: &BuilderAttr, inner: &Ident) -> TokenStream {
-    assert!(builder_attr.kind != crate::Kind::TypeState, "function() called for type-state builder");
-    self.wrap_with_signature(builder_attr, inner)
-}
+    pub fn function(&self, builder_attr: &BuilderAttr, inner: &Ident) -> TokenStream {
+        assert!(
+            builder_attr.kind != crate::Kind::TypeState,
+            "function() called for type-state builder"
+        );
+        self.wrap_with_signature(builder_attr, inner)
+    }
 
     pub fn skipped_field_value(&self) -> Option<TokenStream> {
         let value = match &self.attr.skip {
@@ -324,11 +327,7 @@ pub fn function(&self, builder_attr: &BuilderAttr, inner: &Ident) -> TokenStream
         ))
     }
 
-    fn wrap_with_signature(
-        &self,
-        builder_attr: &BuilderAttr,
-        inner: &Ident,
-    ) -> TokenStream {
+    fn wrap_with_signature(&self, builder_attr: &BuilderAttr, inner: &Ident) -> TokenStream {
         let ty = self.arg_ty();
         let fn_ident = self.function_ident(builder_attr);
         let (args, value) = self.attr.to_args_and_value(ty, &self.ident);
@@ -1214,7 +1213,7 @@ impl FieldAttr {
                         bail!(ident.span() => "`flag` cannot be used with `adapter`");
                     }
                     if !matches!(&field.ty, Type::Path(tp) if tp.path.is_ident("bool")) {
-                       bail!(ident.span() => "`flag` may only be applied to a boolean field");
+                        bail!(ident.span() => "`flag` may only be applied to a boolean field");
                     }
                     self.flag = true;
                 }

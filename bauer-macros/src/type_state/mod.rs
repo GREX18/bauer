@@ -580,7 +580,7 @@ pub fn type_state_builder(
                 } else {
                     quote! { this.#inner.#field_i.write(value); }
                 };
-                
+
                 quote_spanned! {
                     fn_ident.span() =>
                     impl #impl_generics_fields #builder #struct_generics_fields #where_clause {

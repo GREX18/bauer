@@ -260,8 +260,6 @@ pub fn builder(input: TokenStream) -> TokenStream {
     let build_err = builder_attr.error.name(ident);
     let inner = format_ident!("__unsafe_builder_content");
 
-
-
     let mut tuple_index = 0;
     let fields = match data_struct.fields {
         syn::Fields::Named(ref fields_named) => {
@@ -326,10 +324,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
                     )
                 }
             } else if f.attr.flag {
-                (
-                    quote! { bool },
-                    quote! { false },
-                )
+                (quote! { bool }, quote! { false })
             } else {
                 let ty = &f.ty;
                 (
@@ -395,7 +390,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
             }
         } else if field.wrapped_option {
             quote! { inner.#field_i.take() }
-            
+
         } else if field.attr.flag {
             quote! { inner.#field_i }
 
