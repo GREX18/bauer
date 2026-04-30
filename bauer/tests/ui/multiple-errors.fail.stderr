@@ -1,7 +1,7 @@
 error: Unknown attribute 'asdf'.  Valid attribute are: 'kind, prefix, suffix, visibility, crate, const, attributes, doc, build_fn, builder_fn, error, on'
   --> tests/ui/multiple-errors.fail.rs:9:54
    |
-9  |             #[builder(kind = $kind, prefix = "set_", asdf)]
+ 9 |             #[builder(kind = $kind, prefix = "set_", asdf)]
    |                                                      ^^^^
 ...
 45 | tests!("type-state" in mod type_state);
@@ -20,7 +20,7 @@ error: `repeat` cannot be added with `default`
    |
    = note: this error originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: Unknown attribute 'foo'.  Valid attribute are: 'default, into, repeat, repeat_n, rename, skip_prefix, skip_suffix, tuple, adapter, attributes, doc, collector, skip'
+error: Unknown attribute 'foo'.  Valid attribute are: 'default, into, repeat, repeat_n, rename, skip_prefix, skip_suffix, tuple, adapter, attributes, doc, collector, skip, flag'
   --> tests/ui/multiple-errors.fail.rs:12:27
    |
 12 |                 #[builder(foo)]
@@ -45,7 +45,7 @@ error: Inner type must be specified to repeat on type without generics
 error: Unknown attribute 'asdf'.  Valid attribute are: 'kind, prefix, suffix, visibility, crate, const, attributes, doc, build_fn, builder_fn, error, on'
   --> tests/ui/multiple-errors.fail.rs:9:54
    |
-9  |             #[builder(kind = $kind, prefix = "set_", asdf)]
+ 9 |             #[builder(kind = $kind, prefix = "set_", asdf)]
    |                                                      ^^^^
 ...
 44 | tests!("owned" in mod owned unwrap);
@@ -64,7 +64,7 @@ error: `repeat` cannot be added with `default`
    |
    = note: this error originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: Unknown attribute 'foo'.  Valid attribute are: 'default, into, repeat, repeat_n, rename, skip_prefix, skip_suffix, tuple, adapter, attributes, doc, collector, skip'
+error: Unknown attribute 'foo'.  Valid attribute are: 'default, into, repeat, repeat_n, rename, skip_prefix, skip_suffix, tuple, adapter, attributes, doc, collector, skip, flag'
   --> tests/ui/multiple-errors.fail.rs:12:27
    |
 12 |                 #[builder(foo)]
@@ -89,7 +89,7 @@ error: Inner type must be specified to repeat on type without generics
 error: Unknown attribute 'asdf'.  Valid attribute are: 'kind, prefix, suffix, visibility, crate, const, attributes, doc, build_fn, builder_fn, error, on'
   --> tests/ui/multiple-errors.fail.rs:9:54
    |
-9  |             #[builder(kind = $kind, prefix = "set_", asdf)]
+ 9 |             #[builder(kind = $kind, prefix = "set_", asdf)]
    |                                                      ^^^^
 ...
 43 | tests!("borrowed" in mod borrowed unwrap);
@@ -108,7 +108,7 @@ error: `repeat` cannot be added with `default`
    |
    = note: this error originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error: Unknown attribute 'foo'.  Valid attribute are: 'default, into, repeat, repeat_n, rename, skip_prefix, skip_suffix, tuple, adapter, attributes, doc, collector, skip'
+error: Unknown attribute 'foo'.  Valid attribute are: 'default, into, repeat, repeat_n, rename, skip_prefix, skip_suffix, tuple, adapter, attributes, doc, collector, skip, flag'
   --> tests/ui/multiple-errors.fail.rs:12:27
    |
 12 |                 #[builder(foo)]
@@ -129,3 +129,289 @@ error: Inner type must be specified to repeat on type without generics
    | ----------------------------------------- in this macro invocation
    |
    = note: this error originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_a`
+  --> tests/ui/multiple-errors.fail.rs:13:17
+   |
+13 |                 field_a: u32,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   |
+help: `field_a` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:13:17
+   |
+13 |                 field_a: u32,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_b`
+  --> tests/ui/multiple-errors.fail.rs:14:17
+   |
+14 |                 field_b: Option<char>,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   |
+help: `field_b` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:14:17
+   |
+14 |                 field_b: Option<char>,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_c`
+  --> tests/ui/multiple-errors.fail.rs:15:17
+   |
+15 |                 field_c: bool,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   |
+help: `field_c` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:15:17
+   |
+15 |                 field_c: bool,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_d`
+  --> tests/ui/multiple-errors.fail.rs:17:17
+   |
+17 |                 field_d: String,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   |
+help: `field_d` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:17:17
+   |
+17 |                 field_d: String,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_e`
+  --> tests/ui/multiple-errors.fail.rs:19:17
+   |
+19 |                 field_e: Vec<f64>,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   |
+help: `field_e` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:19:17
+   |
+19 |                 field_e: Vec<f64>,
+   |                 ^^^^^^^
+...
+43 | tests!("borrowed" in mod borrowed unwrap);
+   | ----------------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_a`
+  --> tests/ui/multiple-errors.fail.rs:13:17
+   |
+13 |                 field_a: u32,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   |
+help: `field_a` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:13:17
+   |
+13 |                 field_a: u32,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_b`
+  --> tests/ui/multiple-errors.fail.rs:14:17
+   |
+14 |                 field_b: Option<char>,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   |
+help: `field_b` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:14:17
+   |
+14 |                 field_b: Option<char>,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_c`
+  --> tests/ui/multiple-errors.fail.rs:15:17
+   |
+15 |                 field_c: bool,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   |
+help: `field_c` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:15:17
+   |
+15 |                 field_c: bool,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_d`
+  --> tests/ui/multiple-errors.fail.rs:17:17
+   |
+17 |                 field_d: String,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   |
+help: `field_d` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:17:17
+   |
+17 |                 field_d: String,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_e`
+  --> tests/ui/multiple-errors.fail.rs:19:17
+   |
+19 |                 field_e: Vec<f64>,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   |
+help: `field_e` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:19:17
+   |
+19 |                 field_e: Vec<f64>,
+   |                 ^^^^^^^
+...
+44 | tests!("owned" in mod owned unwrap);
+   | ----------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_a`
+  --> tests/ui/multiple-errors.fail.rs:13:17
+   |
+13 |                 field_a: u32,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   |
+help: `field_a` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:13:17
+   |
+13 |                 field_a: u32,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_b`
+  --> tests/ui/multiple-errors.fail.rs:14:17
+   |
+14 |                 field_b: Option<char>,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   |
+help: `field_b` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:14:17
+   |
+14 |                 field_b: Option<char>,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_c`
+  --> tests/ui/multiple-errors.fail.rs:15:17
+   |
+15 |                 field_c: bool,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   |
+help: `field_c` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:15:17
+   |
+15 |                 field_c: bool,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_d`
+  --> tests/ui/multiple-errors.fail.rs:17:17
+   |
+17 |                 field_d: String,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   |
+help: `field_d` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:17:17
+   |
+17 |                 field_d: String,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `field_e`
+  --> tests/ui/multiple-errors.fail.rs:19:17
+   |
+19 |                 field_e: Vec<f64>,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   |
+help: `field_e` is captured in macro and introduced a unused variable
+  --> tests/ui/multiple-errors.fail.rs:19:17
+   |
+19 |                 field_e: Vec<f64>,
+   |                 ^^^^^^^
+...
+45 | tests!("type-state" in mod type_state);
+   | -------------------------------------- in this macro invocation
+   = note: this warning originates in the macro `tests` (in Nightly builds, run with -Z macro-backtrace for more info)

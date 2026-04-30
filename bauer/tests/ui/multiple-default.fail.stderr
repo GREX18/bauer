@@ -3,3 +3,11 @@ error: `default` may only be used once
   |
 5 |     #[builder(default, default)]
   |                        ^^^^^^^
+
+warning: unused variable: `field_a`
+ --> tests/ui/multiple-default.fail.rs:6:5
+  |
+6 |     field_a: String,
+  |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default

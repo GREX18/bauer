@@ -4,6 +4,7 @@ use convert_case::{Case, Casing};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use strum::{AsRefStr, IntoStaticStr, VariantArray};
+use std::cmp::Ordering;
 use syn::{
     Expr, ExprClosure, Field, Ident, Index, LitStr, Pat, Path, Token, TraitBound, Type,
     parenthesized,
@@ -160,6 +161,7 @@ impl Attribute {
     const fn single_use(&self) -> bool {
         match self {
             Attribute::Default => true,
+            Attribute::Flag => true, 
             Attribute::Into => true,
             Attribute::Repeat => true,
             Attribute::RepeatN => true,
@@ -232,6 +234,28 @@ impl BuilderField {
     pub fn should_skip(&self) -> bool {
         self.attr.skip.is_set()
     }
+    pub fn fail_fn(&self, builder_attr: &BuilderAttr) -> TokenStream {
+        let fn_ident = self.function_ident(builder_attr);
+        let ty = self.arg_ty();
+        let (args, _) = self.attr.to_args_and_value(ty, &self.ident);
+        let self_param = builder_attr.self_param();
+        let return_type = builder_attr.return_type();
+        let builder_vis = &builder_attr.vis;
+        let konst = builder_attr.konst_kw();
+        let attributes = &self.attr.attributes;
+
+        quote! {
+            #(#attributes)*
+            #builder_vis #konst fn #fn_ident(#self_param, #args) -> #return_type {
+                panic!("Invalid Builder")
+            }
+        }
+    }
+
+pub fn function(&self, builder_attr: &BuilderAttr, inner: &Ident) -> TokenStream {
+    assert!(builder_attr.kind != crate::Kind::TypeState, "function() called for type-state builder");
+    self.wrap_with_signature(builder_attr, inner)
+}
 
     pub fn skipped_field_value(&self) -> Option<TokenStream> {
         let value = match &self.attr.skip {
@@ -303,25 +327,24 @@ impl BuilderField {
     fn wrap_with_signature(
         &self,
         builder_attr: &BuilderAttr,
-        allow_unused: bool,
-        body: impl ToTokens,
+        inner: &Ident,
     ) -> TokenStream {
         let ty = self.arg_ty();
         let fn_ident = self.function_ident(builder_attr);
-        let (args, _) = self.attr.to_args_and_value(ty, &self.ident);
+        let (args, value) = self.attr.to_args_and_value(ty, &self.ident);
         let self_param = builder_attr.self_param();
         let return_type = builder_attr.return_type();
         let builder_vis = &builder_attr.vis;
 
-        let attributes = &self.attr.attributes;
-        let konst = builder_attr.konst_kw();
-
+        let field_i = self.tuple_index();
         let setter = if self.attr.flag {
             quote! { self.#inner.#field_i = true }
         } else if self.attr.repeat.is_some() {
             quote! { let _ = self.#inner.#field_i.push(value) }
+        } else if self.wrapped_option {
+            quote! { self.#inner.#field_i = Some(value) }
         } else {
-            quote! {}
+            quote! { self.#inner.#field_i = Some(value) }
         };
 
         let attributes = &self.attr.attributes;
@@ -355,8 +378,8 @@ impl BuilderField {
             #builder_vis #konst fn #fn_ident(#self_param, #args) -> #return_type {
                 #body
                 self
-            },
-        )
+            }
+        }
     }
 
     pub fn parse(
@@ -1181,20 +1204,19 @@ impl FieldAttr {
                     };
                 }
                 Attribute::Flag => {
-                    if out.flag {
+                    if self.flag {
                         bail!(ident.span() => "`flag` may only be used once");
                     }
-                    if out.repeat.is_some() {
+                    if self.repeat.is_some() {
                         bail!(ident.span() => "`flag` cannot be used with `repeat`");
                     }
-                    if out.adapter.is_some() {
+                    if self.adapter.is_some() {
                         bail!(ident.span() => "`flag` cannot be used with `adapter`");
                     }
-                    // ensure it's a boolean attribute
                     if !matches!(&field.ty, Type::Path(tp) if tp.path.is_ident("bool")) {
                        bail!(ident.span() => "`flag` may only be applied to a boolean field");
                     }
-                    out.flag = true;
+                    self.flag = true;
                 }
             }
             n_attr += 1;

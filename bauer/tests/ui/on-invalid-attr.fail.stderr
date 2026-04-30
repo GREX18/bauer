@@ -1,5 +1,13 @@
-error: Unknown attribute 'foo'.  Valid attribute are: 'default, into, repeat, repeat_n, rename, skip_prefix, skip_suffix, tuple, adapter, attributes, doc, collector, skip'
+error: Unknown attribute 'foo'.  Valid attribute are: 'default, into, repeat, repeat_n, rename, skip_prefix, skip_suffix, tuple, adapter, attributes, doc, collector, skip, flag'
  --> tests/ui/on-invalid-attr.fail.rs:4:19
   |
 4 | #[builder(on(_ => foo))]
   |                   ^^^
+
+warning: unused variable: `field_a`
+ --> tests/ui/on-invalid-attr.fail.rs:6:5
+  |
+6 |     field_a: u32,
+  |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default

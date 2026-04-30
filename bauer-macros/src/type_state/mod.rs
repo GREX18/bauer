@@ -408,6 +408,7 @@ pub fn type_state_builder(
         }
 
         let (args, value) = f.attr.to_args_and_value(f.arg_ty(), &f.ident);
+
         let fn_ident = f.function_ident(builder_attr);
 
         fn ident_to_type(ident: &Ident) -> Type {
@@ -574,32 +575,23 @@ pub fn type_state_builder(
                         .replace(i, parse_quote! { #set<true> }),
                 );
 
-                let _setter = if f.wrapped_option {
-                    quote! {
-                        this.#inner.#field_i = Some(value);
-                    }
-                } else if f.attr.flag {
-                    quote! {
-                        this.#inner.#field_i = true;
-                    }
+                let setter = if f.wrapped_option {
+                    quote! { this.#inner.#field_i = Some(value); }
                 } else {
-                    quote! {
-                        this.#inner.#field_i.write(value);
-                    }
+                    quote! { this.#inner.#field_i.write(value); }
                 };
-
+                
                 quote_spanned! {
                     fn_ident.span() =>
                     impl #impl_generics_fields #builder #struct_generics_fields #where_clause {
                         #(#fn_attributes)*
                         #[allow(clippy::type_complexity)]
                         pub #konst fn #fn_ident(self, #args) -> #builder #return_struct_generics_fields {
-                            let mut this = self; // rather than have `mut self` in the signature
-                            #[allow(deprecated)] // #inner is set to deprecated
+                            let value: #value_ty = #value;
+                            let mut this = self;
+                            #[allow(deprecated)]
                             {
-                                if !f.attr.flag {
-                                    // won't work in quote - instead guard the whole quote:
-                                }
+                                #setter
                                 #builder {
                                     #inner: this.#inner,
                                     #state: ::core::marker::PhantomData,

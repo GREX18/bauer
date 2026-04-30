@@ -21,3 +21,29 @@ error: `collector` may only be used with `repeat`
    |
 31 |     #[builder(collector = count)]
    |               ^^^^^^^^^
+
+warning: unused variable: `field_a`
+  --> tests/ui/collector-conflict.fail.rs:11:5
+   |
+11 |     field_a: [u8; 3],
+   |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `field_a`
+  --> tests/ui/collector-conflict.fail.rs:18:5
+   |
+18 |     field_a: [u8; 3],
+   |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`
+
+warning: unused variable: `field_a`
+  --> tests/ui/collector-conflict.fail.rs:25:5
+   |
+25 |     field_a: Vec<u8>,
+   |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`
+
+warning: unused variable: `field_a`
+  --> tests/ui/collector-conflict.fail.rs:32:5
+   |
+32 |     field_a: Vec<u8>,
+   |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`

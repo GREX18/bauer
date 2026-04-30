@@ -3,3 +3,11 @@ error: More names than elements in tuple
   |
 5 |     #[builder(tuple(a, b, c))]
   |                    ^^^^^^^^^
+
+warning: unused variable: `field_a`
+ --> tests/ui/tuple-too-many-names.fail.rs:6:5
+  |
+6 |     field_a: (i32, i32),
+  |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default

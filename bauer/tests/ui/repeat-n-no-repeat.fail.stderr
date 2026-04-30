@@ -3,3 +3,11 @@ error: `repeat_n` may only be used with `repeat`
   |
 5 |     #[builder(repeat_n)]
   |               ^^^^^^^^
+
+warning: unused variable: `field_a`
+ --> tests/ui/repeat-n-no-repeat.fail.rs:6:5
+  |
+6 |     field_a: String,
+  |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default

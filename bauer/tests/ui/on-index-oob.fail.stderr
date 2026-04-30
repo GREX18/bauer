@@ -3,3 +3,11 @@ error: index out of bounds: there were 1 matches but the index is 1, if you inte
   |
 4 | #[builder(on(Vec<_> => repeat = #1))]
   |                                 ^^
+
+warning: unused variable: `foo`
+ --> tests/ui/on-index-oob.fail.rs:6:5
+  |
+6 |     foo: Vec<u32>,
+  |     ^^^ help: if this is intentional, prefix it with an underscore: `_foo`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default

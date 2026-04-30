@@ -3,3 +3,11 @@ error: `repeat` cannot be used with a type on arrays
   |
 5 |     #[builder(repeat = u8)]
   |               ^^^^^^
+
+warning: unused variable: `field_a`
+ --> tests/ui/array-repeat-type.fail.rs:6:5
+  |
+6 |     field_a: [u32; 3],
+  |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default

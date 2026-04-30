@@ -3,3 +3,11 @@ error: `tuple` may only be used on fields that are tuples
   |
 5 |     #[builder(tuple, adapter(|x: u32, y: u32| (x + 1, y + 1)))]
   |               ^^^^^
+
+warning: unused variable: `field_b`
+ --> tests/ui/tuple-adapter-conflict.fail.rs:6:5
+  |
+6 |     field_b: String,
+  |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_b`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default

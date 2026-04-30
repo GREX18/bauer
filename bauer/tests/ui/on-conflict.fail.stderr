@@ -3,3 +3,11 @@ error: `default` cannot be added with `repeat`
   |
 6 |     #[builder(default)]
   |               ^^^^^^^
+
+warning: unused variable: `foo`
+ --> tests/ui/on-conflict.fail.rs:7:5
+  |
+7 |     foo: Vec<u32>,
+  |     ^^^ help: if this is intentional, prefix it with an underscore: `_foo`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default

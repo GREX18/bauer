@@ -3,3 +3,11 @@ error: `adapter` cannot be added with `into`
   |
 5 |     #[builder(into, adapter(|x: u32, y: u32| (x + 1, y + 1)))]
   |                     ^^^^^^^
+
+warning: unused variable: `field_a`
+ --> tests/ui/into-adapter-conflict.fail.rs:6:5
+  |
+6 |     field_a: (u32, u32),
+  |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_field_a`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
