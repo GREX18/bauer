@@ -402,6 +402,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
         } else if let Some(default) = &field.attr.default {
             let default = default.to_value(field.attr.into);
             quote! {
+                   // NOTE: not using Option::unwrap_or_else, since it's not stable in const
                 match inner.#field_i.take() {
                     Some(v) => v,
                     None => #default
@@ -413,6 +414,7 @@ pub fn builder(input: TokenStream) -> TokenStream {
                 .as_ref()
                 .expect("missing_err is set when default is none");
             quote! {
+                 // NOTE: not using Option::ok_or, since it's not stable in const
                 match inner.#field_i.take() {
                     Some(v) => v,
                     None => return Err(#build_err::#err),
